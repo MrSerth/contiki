@@ -30,9 +30,6 @@
 #ifndef PROJECT_CONF_H_
 #define PROJECT_CONF_H_
 
-#undef QUEUEBUF_CONF_NUM
-#define QUEUEBUF_CONF_NUM          4
-
 #undef UIP_CONF_BUFFER_SIZE
 #define UIP_CONF_BUFFER_SIZE    140
 
@@ -54,25 +51,56 @@
 #define CMD_CONF_HANDLERS slip_radio_cmd_handler
 #endif
 
+/* SLIP does not work otherwise */
+#undef LPM_CONF_MAX_PM
+#define LPM_CONF_MAX_PM 0
 
-/* configuration for the slipradio/network driver */
+/* configure RDC layer */
+#include "cpu/cc2538/dev/cc2538-rf-async-autoconf.h"
+#include "net/mac/contikimac/secrdc-autoconf.h"
+
+/* configure MAC layer */
+#if 1
 #undef NETSTACK_CONF_MAC
-#define NETSTACK_CONF_MAC     csma_driver
+#define NETSTACK_CONF_MAC csma_driver
+#undef CSMA_CONF_MAX_FRAME_RETRIES
+#define CSMA_CONF_MAX_FRAME_RETRIES 3
+#undef CSMA_CONF_MAX_NEIGHBOR_QUEUES
+#define CSMA_CONF_MAX_NEIGHBOR_QUEUES 5
+#else
+#undef NETSTACK_CONF_MAC
+#define NETSTACK_CONF_MAC nullmac_driver
+#endif
 
-#undef NETSTACK_CONF_RDC
-/* #define NETSTACK_CONF_RDC     nullrdc_noframer_driver */
-#define NETSTACK_CONF_RDC     contikimac_driver
+/* configure LLSEC layer */
+#undef ADAPTIVESEC_CONF_UNICAST_SEC_LVL
+#define ADAPTIVESEC_CONF_UNICAST_SEC_LVL 2
+#undef ADAPTIVESEC_CONF_BROADCAST_SEC_LVL
+#define ADAPTIVESEC_CONF_BROADCAST_SEC_LVL 2
+#undef LLSEC802154_CONF_USES_AUX_HEADER
+#define LLSEC802154_CONF_USES_AUX_HEADER 0
+#undef NBR_TABLE_CONF_MAX_NEIGHBORS
+#define NBR_TABLE_CONF_MAX_NEIGHBORS 14
+#if 0
+#include "net/llsec/adaptivesec/coresec-autoconf.h"
+#else
+#include "net/llsec/adaptivesec/noncoresec-autoconf.h"
+#endif
+#if 1
+#include "net/llsec/adaptivesec/potr-autoconf.h"
+#if 1
+#include "net/mac/contikimac/ilos-autoconf.h"
+#endif
+#endif
+
+/* configure FRAMERs */
+#include "net/mac/contikimac/framer-autoconf.h"
 
 #undef NETSTACK_CONF_NETWORK
 #define NETSTACK_CONF_NETWORK slipnet_driver
 
-#undef NETSTACK_CONF_FRAMER
-#define NETSTACK_CONF_FRAMER framer_802154
-
-#undef CC2420_CONF_AUTOACK
-#define CC2420_CONF_AUTOACK              1
-
-#undef UART1_CONF_RX_WITH_DMA
-#define UART1_CONF_RX_WITH_DMA           1
+/* set a seeder */
+#undef CSPRNG_CONF_SEEDER
+#define CSPRNG_CONF_SEEDER iq_seeder
 
 #endif /* PROJECT_CONF_H_ */
