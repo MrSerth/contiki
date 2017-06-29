@@ -42,7 +42,7 @@
 #include <string.h>
 #include "er-coap-engine.h"
 
-#define DEBUG 0
+#define DEBUG 1
 #if DEBUG
 #include <stdio.h>
 #define PRINTF(...) printf(__VA_ARGS__)
@@ -159,6 +159,7 @@ coap_receive(void)
                     PRINTF
                       ("Blockwise: unaware resource with payload length %u/%u\n",
                       response->payload_len, block_size);
+                      coap_set_header_experimental(response, 1337);
                     if(block_offset >= response->payload_len) {
                       PRINTF
                         ("handle_incoming_data(): block_offset >= response->payload_len\n");

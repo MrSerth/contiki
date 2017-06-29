@@ -91,10 +91,11 @@ typedef struct {
   uint8_t token_len;
   uint8_t token[COAP_TOKEN_LEN];
 
-  uint8_t options[COAP_OPTION_SIZE1 / OPTION_MAP_SIZE + 1]; /* bitmap to check if option is set */
+  uint8_t options[COAP_OPTION_EXPERIMENTAL / OPTION_MAP_SIZE + 1]; /* bitmap to check if option is set */
 
   uint16_t content_format; /* parse options once and store; allows setting options in random order  */
   uint32_t max_age;
+  uint32_t experimental;
   uint8_t etag_len;
   uint8_t etag[COAP_ETAG_LEN];
   size_t proxy_uri_len;
@@ -206,6 +207,8 @@ int coap_set_header_accept(void *packet, unsigned int accept);
 
 int coap_get_header_max_age(void *packet, uint32_t *age);
 int coap_set_header_max_age(void *packet, uint32_t age);
+
+int coap_set_header_experimental(void *packet, uint32_t value);
 
 int coap_get_header_etag(void *packet, const uint8_t **etag);
 int coap_set_header_etag(void *packet, const uint8_t *etag, size_t etag_len);

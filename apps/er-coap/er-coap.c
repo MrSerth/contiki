@@ -45,7 +45,7 @@
 #include "er-coap.h"
 #include "er-coap-transactions.h"
 
-#define DEBUG 0
+#define DEBUG 1
 #if DEBUG
 #include <stdio.h>
 #define PRINTF(...) printf(__VA_ARGS__)
@@ -387,6 +387,7 @@ coap_serialize_message(void *packet, uint8_t *buffer)
   COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_PROXY_SCHEME, proxy_scheme, '\0',
                                "Proxy-Scheme");
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_SIZE1, size1, "Size1");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_EXPERIMENTAL, experimental, "Experimental");
 
   PRINTF("-Done serializing at %p----\n", option);
 
@@ -806,6 +807,19 @@ coap_set_header_max_age(void *packet, uint32_t age)
   SET_OPTION(coap_pkt, COAP_OPTION_MAX_AGE);
   return 1;
 }
+/*---------------------------------------------------------------------------*/
+
+
+int
+coap_set_header_experimental(void *packet, uint32_t value)
+{
+    coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+    coap_pkt->experimental = value;
+    SET_OPTION(coap_pkt, COAP_OPTION_EXPERIMENTAL);
+    return 1;
+}
+
 /*---------------------------------------------------------------------------*/
 int
 coap_get_header_etag(void *packet, const uint8_t **etag)

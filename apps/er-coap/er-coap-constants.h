@@ -135,6 +135,7 @@ typedef enum {
   COAP_OPTION_PROXY_URI = 35,   /* 1-1034 B */
   COAP_OPTION_PROXY_SCHEME = 39,        /* 1-255 B */
   COAP_OPTION_SIZE1 = 60,       /* 0-4 B */
+  COAP_OPTION_EXPERIMENTAL = 61, /* :) */
 } coap_option_t;
 
 /* CoAP Content-Formats */
