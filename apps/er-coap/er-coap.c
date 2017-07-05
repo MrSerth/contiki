@@ -308,7 +308,13 @@ coap_init_message(void *packet, coap_message_type_t type, uint8_t code,
 }
 /*---------------------------------------------------------------------------*/
 size_t
-coap_serialize_message(void *packet, uint8_t *buffer)
+coap_serialize_message(void *packet, uint8_t *buffer) {
+  return coap_serialize_message_with_counter(packet, buffer, 0);
+}
+/*---------------------------------------------------------------------------*/
+size_t
+coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
+                                    uint8_t retransmission_counter)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
   uint8_t *option;
@@ -333,7 +339,7 @@ coap_serialize_message(void *packet, uint8_t *buffer)
   coap_pkt->buffer[3] = (uint8_t)(coap_pkt->mid);
 
   /* set experimental headers */
-  coap_set_header_experimental(coap_pkt, 0x42);
+  enable_authenticity_check(coap_pkt, retransmission_counter);
 
   /* empty packet, dont need to do more stuff */
   if(!coap_pkt->code) {
@@ -390,7 +396,10 @@ coap_serialize_message(void *packet, uint8_t *buffer)
   COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_PROXY_SCHEME, proxy_scheme, '\0',
                                "Proxy-Scheme");
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_SIZE1, size1, "Size1");
+
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_EXPERIMENTAL, experimental, "Experimental");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, experimental, "Authenticity Counter");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_HASH, experimental, "Authenticity Hash");
 
   PRINTF("-Done serializing at %p----\n", option);
 
@@ -810,18 +819,6 @@ coap_set_header_max_age(void *packet, uint32_t age)
   SET_OPTION(coap_pkt, COAP_OPTION_MAX_AGE);
   return 1;
 }
-/*---------------------------------------------------------------------------*/
-
-
-int
-coap_set_header_experimental(void *packet, uint32_t value)
-{
-    coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
-
-    coap_pkt->experimental = value;
-    SET_OPTION(coap_pkt, COAP_OPTION_EXPERIMENTAL);
-    return 1;
-}
 
 /*---------------------------------------------------------------------------*/
 int
@@ -1223,5 +1220,44 @@ coap_set_payload(void *packet, const void *payload, size_t length)
   coap_pkt->payload_len = MIN(REST_MAX_CHUNK_SIZE, length);
 
   return coap_pkt->payload_len;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_experimental(void *packet, uint8_t value)
+{
+  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+  coap_pkt->experimental = value;
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_EXPERIMENTAL);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_auth_counter(void *packet, uint8_t value)
+{
+  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+  coap_pkt->experimental = value;
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_COUNTER);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_auth_hash(void *packet, uint32_t value)
+{
+  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+  coap_pkt->experimental = value;
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+enable_authenticity_check(void *coap_pkt, uint8_t retransmission_counter) {
+  coap_set_header_experimental(coap_pkt, 0x42);
+  return 1;
 }
 /*---------------------------------------------------------------------------*/

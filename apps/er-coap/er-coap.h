@@ -91,11 +91,10 @@ typedef struct {
   uint8_t token_len;
   uint8_t token[COAP_TOKEN_LEN];
 
-  uint8_t options[COAP_OPTION_EXPERIMENTAL / OPTION_MAP_SIZE + 1]; /* bitmap to check if option is set */
+  uint8_t options[COAP_OPTION_SIZE1 / OPTION_MAP_SIZE + 1]; /* bitmap to check if option is set */
 
   uint16_t content_format; /* parse options once and store; allows setting options in random order  */
   uint32_t max_age;
-  uint32_t experimental;
   uint8_t etag_len;
   uint8_t etag[COAP_ETAG_LEN];
   size_t proxy_uri_len;
@@ -131,11 +130,15 @@ typedef struct {
 
   uint16_t payload_len;
   uint8_t *payload;
+
+  uint8_t experimental;
+  uint8_t auth_counter;
+  uint32_t auth_hash;
 } coap_packet_t;
 
 /* option format serialization */
 #define COAP_SERIALIZE_INT_OPTION(number, field, text) \
-  if(IS_OPTION(coap_pkt, number)) { \
+  if(number >= COAP_OPTION_EXPERIMENTAL || IS_OPTION(coap_pkt, number)) { \
     PRINTF(text " [%u]\n", (unsigned int)coap_pkt->field); \
     option += coap_serialize_int_option(number, current_number, option, coap_pkt->field); \
     current_number = number; \
@@ -183,6 +186,7 @@ uint16_t coap_get_mid(void);
 void coap_init_message(void *packet, coap_message_type_t type, uint8_t code,
                        uint16_t mid);
 size_t coap_serialize_message(void *packet, uint8_t *buffer);
+size_t coap_serialize_message_with_counter(void *packet, uint8_t *buffer, uint8_t retransmission_counter);
 void coap_send_message(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
                        uint16_t length);
 coap_status_t coap_parse_message(void *request, uint8_t *data,
@@ -207,8 +211,6 @@ int coap_set_header_accept(void *packet, unsigned int accept);
 
 int coap_get_header_max_age(void *packet, uint32_t *age);
 int coap_set_header_max_age(void *packet, uint32_t age);
-
-int coap_set_header_experimental(void *packet, uint32_t value);
 
 int coap_get_header_etag(void *packet, const uint8_t **etag);
 int coap_set_header_etag(void *packet, const uint8_t *etag, size_t etag_len);
@@ -262,5 +264,10 @@ int coap_set_header_size1(void *packet, uint32_t size);
 
 int coap_get_payload(void *packet, const uint8_t **payload);
 int coap_set_payload(void *packet, const void *payload, size_t length);
+
+int coap_set_header_experimental(void *packet, uint8_t value);
+int coap_set_header_auth_counter(void *packet, uint8_t value);
+int coap_set_header_auth_hash(void *packet, uint32_t value);
+int enable_authenticity_check(void *packet, uint8_t retransmission_counter);
 
 #endif /* ER_COAP_H_ */

@@ -398,10 +398,11 @@ PT_THREAD(coap_blocking_request
         coap_set_header_block2(request, state->block_num, 0,
                                REST_MAX_CHUNK_SIZE);
       }
-      state->transaction->packet_len = coap_serialize_message(request,
-                                                              state->
-                                                              transaction->
-                                                              packet);
+      state->transaction->packet_len = coap_serialize_message_with_counter(request,
+                                                                           state->
+                                                                           transaction->
+                                                                           packet,
+                                                                           block_error);
 
       coap_send_transaction(state->transaction);
       PRINTF("Requested #%lu (MID %u)\n", state->block_num, request->mid);
