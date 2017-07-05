@@ -332,6 +332,9 @@ coap_serialize_message(void *packet, uint8_t *buffer)
   coap_pkt->buffer[2] = (uint8_t)((coap_pkt->mid) >> 8);
   coap_pkt->buffer[3] = (uint8_t)(coap_pkt->mid);
 
+  /* set experimental headers */
+  coap_set_header_experimental(coap_pkt, 0x42);
+
   /* empty packet, dont need to do more stuff */
   if(!coap_pkt->code) {
     PRINTF("-Done serializing empty message at %p-\n", coap_pkt->buffer);
