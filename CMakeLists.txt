@@ -2156,8 +2156,6 @@ set(SOURCE_FILES
         examples/galileo/print-imr.c
         examples/galileo/prot-domain-switch-latency.c
         examples/hello-world/hello-world.c
-        examples/hello-world/symbols.c
-        examples/hello-world/symbols.h
         examples/http-socket/http-example.c
         examples/ip64-router/ip64-router.c
         examples/ip64-router/project-conf.h
