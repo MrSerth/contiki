@@ -398,8 +398,8 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_SIZE1, size1, "Size1");
 
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_EXPERIMENTAL, experimental, "Experimental");
-  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, experimental, "Authenticity Counter");
-  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_HASH, experimental, "Authenticity Hash");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, auth_counter, "Authenticity Counter");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_HASH, auth_hash, "Authenticity Hash");
 
   PRINTF("-Done serializing at %p----\n", option);
 
@@ -437,15 +437,43 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
 /*---------------------------------------------------------------------------*/
 void
 coap_send_message(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
-                  uint16_t length)
+                               uint16_t length) {
+  coap_send_message_with_counter(addr, port, data, length, 0);
+}
+/*---------------------------------------------------------------------------*/
+void
+coap_send_message_with_counter(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
+                  uint16_t length, uint8_t counter)
 {
+  /* Authenticity check */
+  if (counter != 0) {
+    static coap_packet_t coap_pkt[1];
+
+    PRINTF("-data: ");
+    for (uint8_t i = 0; i < length; ++i) {
+      PRINTF("%02x ", *((char*)data+i));
+    }
+    PRINTF("-\n");
+
+    coap_parse_message(coap_pkt, data, length);
+    PRINTF("BEFORE SERIALIZING, length: %u\n", length);
+    PRINTF("Payload: %u", coap_pkt->payload_len);
+    length = coap_serialize_message_with_counter(coap_pkt, coap_pkt->buffer, counter);
+    PRINTF("AFTER SERIALIZING, length: %u\n", length);
+    PRINTF("Payload: %u", coap_pkt->payload_len);
+  }
+
   /* configure connection to reply to client */
   uip_ipaddr_copy(&udp_conn->ripaddr, addr);
   udp_conn->rport = port;
 
   uip_udp_packet_send(udp_conn, data, length);
 
-  PRINTF("-sent UDP datagram (%u)-\n", length);
+  PRINTF("-sent UDP datagram (%u): ", length);
+  for (uint8_t i = 0; i < length; ++i) {
+    PRINTF("%02x ", data[i]);
+  }
+  PRINTF("-\n");
 
   /* restore server socket to allow data from any node */
   memset(&udp_conn->ripaddr, 0, sizeof(udp_conn->ripaddr));
@@ -692,6 +720,18 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       coap_pkt->size1 = coap_parse_int_option(current_option, option_length);
       PRINTF("Size1 [%lu]\n", (unsigned long)coap_pkt->size1);
       break;
+    case COAP_OPTION_EXPERIMENTAL:
+      coap_pkt->experimental = (uint8_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Experimental [%u]\n", (uint8_t)coap_pkt->experimental);
+      break;
+    case COAP_OPTION_AUTH_COUNTER:
+        coap_pkt->auth_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
+        PRINTF("Auth Counter [%u]\n", (uint8_t)coap_pkt->auth_counter);
+        break;
+    case COAP_OPTION_AUTH_HASH:
+        coap_pkt->auth_hash = coap_parse_int_option(current_option, option_length);
+        PRINTF("Auth Hash [%u]\n", (uint32_t)coap_pkt->auth_hash);
+        break;
     default:
       PRINTF("unknown (%u)\n", option_number);
       /* check if critical (odd) */
@@ -1238,7 +1278,7 @@ coap_set_header_auth_counter(void *packet, uint8_t value)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
-  coap_pkt->experimental = value;
+  coap_pkt->auth_counter = value + 1;
   // Don't set option in map because this would exceed the FSRAM size
   // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_COUNTER);
   return 1;
@@ -1249,7 +1289,7 @@ coap_set_header_auth_hash(void *packet, uint32_t value)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
-  coap_pkt->experimental = value;
+  coap_pkt->auth_hash = 0x1337;
   // Don't set option in map because this would exceed the FSRAM size
   // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
   return 1;
@@ -1258,6 +1298,8 @@ coap_set_header_auth_hash(void *packet, uint32_t value)
 int
 enable_authenticity_check(void *coap_pkt, uint8_t retransmission_counter) {
   coap_set_header_experimental(coap_pkt, 0x42);
+  coap_set_header_auth_counter(coap_pkt, retransmission_counter);
+  coap_set_header_auth_hash(coap_pkt, retransmission_counter);
   return 1;
 }
 /*---------------------------------------------------------------------------*/

@@ -189,6 +189,8 @@ size_t coap_serialize_message(void *packet, uint8_t *buffer);
 size_t coap_serialize_message_with_counter(void *packet, uint8_t *buffer, uint8_t retransmission_counter);
 void coap_send_message(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
                        uint16_t length);
+void coap_send_message_with_counter(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
+                       uint16_t length, uint8_t counter);
 coap_status_t coap_parse_message(void *request, uint8_t *data,
                                  uint16_t data_len);
 
