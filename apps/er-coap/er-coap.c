@@ -41,6 +41,7 @@
 #include "contiki.h"
 #include "sys/cc.h"
 #include "contiki-net.h"
+#include "dev/sha256.h"
 
 #include "er-coap.h"
 #include "er-coap-transactions.h"
@@ -399,7 +400,7 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
 
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_EXPERIMENTAL, experimental, "Experimental");
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, auth_counter, "Authenticity Counter");
-  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_HASH, auth_hash, "Authenticity Hash");
+  COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_AUTH_HASH, auth_hash, '\0', "Authenticity Hash");
 
   PRINTF("-Done serializing at %p----\n", option);
 
@@ -725,13 +726,17 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       PRINTF("Experimental [%u]\n", (uint8_t)coap_pkt->experimental);
       break;
     case COAP_OPTION_AUTH_COUNTER:
-        coap_pkt->auth_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
-        PRINTF("Auth Counter [%u]\n", (uint8_t)coap_pkt->auth_counter);
-        break;
+      coap_pkt->auth_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Authenticity Counter [%u]\n", (uint8_t)coap_pkt->auth_counter);
+      break;
     case COAP_OPTION_AUTH_HASH:
-        coap_pkt->auth_hash = coap_parse_int_option(current_option, option_length);
-        PRINTF("Auth Hash [%u]\n", (uint32_t)coap_pkt->auth_hash);
-        break;
+      /* coap_merge_multi_option() operates in-place on the IPBUF, but final packet field should be const string -> cast to string */
+      coap_merge_multi_option((char **)&(coap_pkt->auth_hash),
+                              &(coap_pkt->auth_hash_len), current_option,
+                              option_length, '\0');
+      PRINTF("Authenticity Hash [%.*s]\n", (int)coap_pkt->auth_hash_len,
+             coap_pkt->auth_hash);
+      break;
     default:
       PRINTF("unknown (%u)\n", option_number);
       /* check if critical (odd) */
@@ -1289,7 +1294,43 @@ coap_set_header_auth_hash(void *packet, uint32_t value)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
-  coap_pkt->auth_hash = 0x1337;
+  uint16_t mid = uip_htons(coap_pkt->mid);
+  uint8_t counter = coap_pkt->auth_counter;
+  uint8_t * payload = coap_pkt->payload;
+  uint16_t payload_len = coap_pkt->payload_len;
+  uint8_t psk = 1;
+
+  uint32_t hex_all_len = sizeof(mid) + sizeof(counter) + payload_len + sizeof(psk);
+  char hex_all[hex_all_len];
+  memcpy(hex_all, &mid, sizeof(mid));
+  memcpy(hex_all + sizeof(mid), &counter, sizeof(counter));
+  memcpy(hex_all + sizeof(mid) + sizeof(counter), payload, payload_len);
+  memcpy(hex_all + sizeof(mid) + sizeof(counter) + payload_len, &psk, sizeof(psk));
+
+  PRINTF("input data for hash:\n");
+  for (uint8_t i = 0; i < hex_all_len; i++){
+    PRINTF("%02x ", hex_all[i]);
+  }
+  PRINTF("\n");
+
+  static sha256_state_t state;
+  static uint8_t sha256[32], error_code = CRYPTO_SUCCESS;
+  if (!CRYPTO_IS_ENABLED())
+    crypto_init();
+  error_code &= sha256_init(&state);
+  if (!CRYPTO_SUCCESS)
+    error_code &= sha256_process(&state, hex_all, hex_all_len);
+  if (!CRYPTO_SUCCESS)
+    error_code &= sha256_done(&state, sha256);
+
+  PRINTF("Hash:\n");
+  for (uint8_t i = 0; i < sizeof(sha256) ; i++){
+    PRINTF("%02x ", sha256[i]);
+  }
+
+  coap_pkt->auth_hash = (const char *) sha256;
+  coap_pkt->auth_hash_len = sizeof(sha256);
+
   // Don't set option in map because this would exceed the FSRAM size
   // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
   return 1;

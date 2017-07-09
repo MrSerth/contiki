@@ -133,7 +133,8 @@ typedef struct {
 
   uint8_t experimental;
   uint8_t auth_counter;
-  uint32_t auth_hash;
+  size_t auth_hash_len;
+  const char *auth_hash;
 } coap_packet_t;
 
 /* option format serialization */
@@ -159,7 +160,7 @@ typedef struct {
     current_number = number; \
   }
 #define COAP_SERIALIZE_STRING_OPTION(number, field, splitter, text) \
-  if(IS_OPTION(coap_pkt, number)) { \
+  if(number >= COAP_OPTION_EXPERIMENTAL || IS_OPTION(coap_pkt, number)) { \
     PRINTF(text " [%.*s]\n", (int)coap_pkt->field##_len, coap_pkt->field); \
     option += coap_serialize_array_option(number, current_number, option, (uint8_t *)coap_pkt->field, coap_pkt->field##_len, splitter); \
     current_number = number; \
