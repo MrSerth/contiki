@@ -449,19 +449,8 @@ coap_send_message_with_counter(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
   /* Authenticity check */
   if (counter != 0) {
     static coap_packet_t coap_pkt[1];
-
-    PRINTF("-data: ");
-    for (uint8_t i = 0; i < length; ++i) {
-      PRINTF("%02x ", *((char*)data+i));
-    }
-    PRINTF("-\n");
-
     coap_parse_message(coap_pkt, data, length);
-    PRINTF("BEFORE SERIALIZING, length: %u\n", length);
-    PRINTF("Payload: %u", coap_pkt->payload_len);
     length = coap_serialize_message_with_counter(coap_pkt, coap_pkt->buffer, counter);
-    PRINTF("AFTER SERIALIZING, length: %u\n", length);
-    PRINTF("Payload: %u", coap_pkt->payload_len);
   }
 
   /* configure connection to reply to client */
@@ -734,8 +723,11 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       coap_merge_multi_option((char **)&(coap_pkt->auth_hash),
                               &(coap_pkt->auth_hash_len), current_option,
                               option_length, '\0');
-      PRINTF("Authenticity Hash [%.*s]\n", (int)coap_pkt->auth_hash_len,
-             coap_pkt->auth_hash);
+      PRINTF("Authenticity Hash [");
+      for (uint8_t i = 0; i < coap_pkt->auth_hash_len; ++i){
+        PRINTF("%02x ", coap_pkt->auth_hash[i]);
+      }
+      PRINTF("\b]\n");
       break;
     default:
       PRINTF("unknown (%u)\n", option_number);
@@ -1283,14 +1275,14 @@ coap_set_header_auth_counter(void *packet, uint8_t value)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
-  coap_pkt->auth_counter = value + 1;
+  coap_pkt->auth_counter = (uint8_t) (value + 1);
   // Don't set option in map because this would exceed the FSRAM size
   // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_COUNTER);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_set_header_auth_hash(void *packet, uint32_t value)
+coap_set_header_auth_hash(void *packet)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
@@ -1307,11 +1299,11 @@ coap_set_header_auth_hash(void *packet, uint32_t value)
   memcpy(hex_all + sizeof(mid) + sizeof(counter), payload, payload_len);
   memcpy(hex_all + sizeof(mid) + sizeof(counter) + payload_len, &psk, sizeof(psk));
 
-  PRINTF("input data for hash:\n");
-  for (uint8_t i = 0; i < hex_all_len; i++){
+  PRINTF("input data for hash: ");
+  for (uint8_t i = 0; i < hex_all_len; ++i){
     PRINTF("%02x ", hex_all[i]);
   }
-  PRINTF("\n");
+  PRINTF("\b, ");
 
   static sha256_state_t state;
   static uint8_t sha256[32], error_code = CRYPTO_SUCCESS;
@@ -1322,11 +1314,6 @@ coap_set_header_auth_hash(void *packet, uint32_t value)
     error_code &= sha256_process(&state, hex_all, hex_all_len);
   if (!CRYPTO_SUCCESS)
     error_code &= sha256_done(&state, sha256);
-
-  PRINTF("Hash:\n");
-  for (uint8_t i = 0; i < sizeof(sha256) ; i++){
-    PRINTF("%02x ", sha256[i]);
-  }
 
   coap_pkt->auth_hash = (const char *) sha256;
   coap_pkt->auth_hash_len = sizeof(sha256);
@@ -1340,7 +1327,7 @@ int
 enable_authenticity_check(void *coap_pkt, uint8_t retransmission_counter) {
   coap_set_header_experimental(coap_pkt, 0x42);
   coap_set_header_auth_counter(coap_pkt, retransmission_counter);
-  coap_set_header_auth_hash(coap_pkt, retransmission_counter);
+  coap_set_header_auth_hash(coap_pkt);
   return 1;
 }
 /*---------------------------------------------------------------------------*/

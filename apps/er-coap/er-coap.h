@@ -161,7 +161,15 @@ typedef struct {
   }
 #define COAP_SERIALIZE_STRING_OPTION(number, field, splitter, text) \
   if(number >= COAP_OPTION_EXPERIMENTAL || IS_OPTION(coap_pkt, number)) { \
-    PRINTF(text " [%.*s]\n", (int)coap_pkt->field##_len, coap_pkt->field); \
+    if(number != COAP_OPTION_AUTH_HASH) { \
+      PRINTF(text " [%.*s]\n", (int)coap_pkt->field##_len, coap_pkt->field); \
+    } else { \
+      PRINTF(text " ["); \
+      for (uint8_t i = 0; i < coap_pkt->auth_hash_len; ++i){ \
+        PRINTF("%02x ", coap_pkt->auth_hash[i]); \
+      } \
+      PRINTF("\b]\n"); \
+    } \
     option += coap_serialize_array_option(number, current_number, option, (uint8_t *)coap_pkt->field, coap_pkt->field##_len, splitter); \
     current_number = number; \
   }
@@ -270,7 +278,7 @@ int coap_set_payload(void *packet, const void *payload, size_t length);
 
 int coap_set_header_experimental(void *packet, uint8_t value);
 int coap_set_header_auth_counter(void *packet, uint8_t value);
-int coap_set_header_auth_hash(void *packet, uint32_t value);
+int coap_set_header_auth_hash(void *packet);
 int enable_authenticity_check(void *packet, uint8_t retransmission_counter);
 
 #endif /* ER_COAP_H_ */
