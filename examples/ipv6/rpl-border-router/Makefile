@@ -5,6 +5,9 @@ CONTIKI=../../..
 
 MODULES += core/net/llsec/adaptivesec
 
+APPS += er-coap
+APPS += rest-engine
+
 #linker optimizations
 SMALL=1
 
