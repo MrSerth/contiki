@@ -55,7 +55,7 @@
 #include <string.h>
 #include "apps/er-coap/er-coap.h"
 
-#define DEBUG DEBUG_NONE
+#define DEBUG DEBUG_FULL
 #include "net/ip/uip-debug.h"
 
 #if UIP_LOGGING
@@ -873,15 +873,15 @@ tcpip_filter_packet(void)
   } else if (UIP_IP_BUF->proto == UIP_PROTO_ICMP6) {
     PRINTF("ICMPv6 header found, do nothing.\n");
   } else if (UIP_IP_BUF->proto == UIP_PROTO_UDP) {
-    PRINTF("UDP packet received\n");
-    PRINTF("destination port: %u, source port: %u \n", uip_ntohs(UIP_UDP_BUF->destport), uip_ntohs(UIP_UDP_BUF->srcport));
+    PRINTF("UDP packet received, CoAP %u\n", COAP_DEFAULT_PORT);
+    PRINTF("destination port: %u, source port: %u\n", uip_ntohs(UIP_UDP_BUF->destport), uip_ntohs(UIP_UDP_BUF->srcport));
 
-    if (UIP_UDP_BUF->destport == COAP_DEFAULT_PORT) {
-      PRINTF("CoAP Packet entering WSN");
-    } else if (UIP_UDP_BUF->srcport == COAP_DEFAULT_PORT) {
-      PRINTF("CoAP Packet from WSN");
+    if (COAP_DEFAULT_PORT == uip_ntohs(UIP_UDP_BUF->destport)) {
+      PRINTF("CoAP Packet entering WSN\n");
+    } else if (COAP_DEFAULT_PORT == uip_ntohs(UIP_UDP_BUF->srcport)) {
+      PRINTF("CoAP Packet from WSN\n");
     } else {
-      PRINTF("No CoAP Packet, do nothing.");
+      PRINTF("No CoAP Packet, do nothing.\n");
       return false;
     }
 
