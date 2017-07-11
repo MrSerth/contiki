@@ -53,6 +53,7 @@
 #endif
 
 #include <string.h>
+#include "apps/er-coap/er-coap.h"
 
 #define DEBUG DEBUG_NONE
 #include "net/ip/uip-debug.h"
@@ -548,10 +549,23 @@ tcpip_ipv6_output(void)
     return;
   }
 
+  if (tcpip_filter_packet()) {
+    PRINTF("DROPPING packet due to inspection");
+    uip_clear_buf();
+    return;
+  }
+
 #if UIP_CONF_IPV6_RPL
   if(!rpl_update_header()) {
     /* Packet can not be forwarded */
     PRINTF("tcpip_ipv6_output: RPL header update error\n");
+    uip_clear_buf();
+    return;
+  }
+
+  // Inspect the packet a second time due to wrapped / unwrapped RPL.
+  if (tcpip_filter_packet()) {
+    PRINTF("DROPPING packet due to inspection");
     uip_clear_buf();
     return;
   }
@@ -845,5 +859,46 @@ PROCESS_THREAD(tcpip_process, ev, data)
   }
 
   PROCESS_END();
+}
+/*---------------------------------------------------------------------------*/
+bool
+tcpip_filter_packet(void)
+{
+  // Inspects the packet. If nothing bad is found, a return value of "false"
+  // indicates that the packet should not be filtered and processing should continue
+  PRINTF("INSPECT Protocol: %u\n", UIP_IP_BUF->proto);
+
+  if (UIP_IP_BUF->proto == UIP_PROTO_HBHO) {
+    PRINTF("RPL header found, do nothing.\n");
+  } else if (UIP_IP_BUF->proto == UIP_PROTO_ICMP6) {
+    PRINTF("ICMPv6 header found, do nothing.\n");
+  } else if (UIP_IP_BUF->proto == UIP_PROTO_UDP) {
+    PRINTF("UDP packet received\n");
+    PRINTF("destination port: %u, source port: %u \n", uip_ntohs(UIP_UDP_BUF->destport), uip_ntohs(UIP_UDP_BUF->srcport));
+
+    if (UIP_UDP_BUF->destport == COAP_DEFAULT_PORT) {
+      PRINTF("CoAP Packet entering WSN");
+    } else if (UIP_UDP_BUF->srcport == COAP_DEFAULT_PORT) {
+      PRINTF("CoAP Packet from WSN");
+    } else {
+      PRINTF("No CoAP Packet, do nothing.");
+      return false;
+    }
+
+    uint16_t length = (uint16_t) (uip_datalen()-uip_l2_l3_udp_hdr_len);
+    unsigned char *orignal_data = uip_buf + uip_l2_l3_udp_hdr_len;
+    unsigned char coap_data[length]; // required to parse CoAP message and forward original packet
+    memcpy(coap_data, orignal_data, length);
+
+    PRINTF("- CoAP packet raw data: ");
+    for (uint8_t i = 0; i < length; ++i) {
+      PRINTF("%02x ",coap_data[i]);
+    }
+    PRINTF("\b-\n");
+
+    static coap_packet_t coap_pkt[1];
+    coap_parse_message(coap_pkt, coap_data, length); // function call has side effect on coap_data!
+  }
+  return false;
 }
 /*---------------------------------------------------------------------------*/
