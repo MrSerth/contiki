@@ -5,12 +5,15 @@ set(CMAKE_CXX_STANDARD 14)
 
 include_directories(.)
 include_directories(core)
+include_directories(core/net)
 include_directories(core/net/ip)
 include_directories(apps/er-coap)
 include_directories(apps/rest-engine)
 include_directories(platform/openmote-cc2538)
 include_directories(cpu/cc2538)
 include_directories(examples/jn516x/rpl/tools)
+
+add_definitions(-DNETSTACK_CONF_WITH_IPV6=1)
 
 set(SOURCE_FILES
         apps/about/about-dsc.c
