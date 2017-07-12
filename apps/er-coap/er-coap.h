@@ -278,7 +278,8 @@ int coap_set_payload(void *packet, const void *payload, size_t length);
 
 int coap_set_header_experimental(void *packet, uint8_t value);
 int coap_set_header_auth_counter(void *packet, uint8_t value);
-int coap_set_header_auth_hash(void *packet);
+int coap_calculate_auth_hash(void *packet, const char *hash);
+int coap_set_header_auth_hash(void *packet, const char *hash, size_t hash_length);
 int enable_authenticity_check(void *packet, uint8_t retransmission_counter);
 
 #endif /* ER_COAP_H_ */

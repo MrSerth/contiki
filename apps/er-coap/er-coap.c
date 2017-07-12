@@ -1282,7 +1282,7 @@ coap_set_header_auth_counter(void *packet, uint8_t value)
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_set_header_auth_hash(void *packet)
+coap_calculate_auth_hash(void *packet, const char * sha256)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
@@ -1306,17 +1306,22 @@ coap_set_header_auth_hash(void *packet)
   PRINTF("\b, ");
 
   static sha256_state_t state;
-  static uint8_t sha256[32], error_code = CRYPTO_SUCCESS;
+  static uint8_t error_code = CRYPTO_SUCCESS;
   if (!CRYPTO_IS_ENABLED())
     crypto_init();
   error_code &= sha256_init(&state);
   if (!CRYPTO_SUCCESS)
     error_code &= sha256_process(&state, hex_all, hex_all_len);
   if (!CRYPTO_SUCCESS)
-    error_code &= sha256_done(&state, sha256);
-
-  coap_pkt->auth_hash = (const char *) sha256;
-  coap_pkt->auth_hash_len = sizeof(sha256);
+    error_code &= sha256_done(&state, (void *) sha256);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_auth_hash(void *packet, const char * sha256, size_t hash_length) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+  coap_pkt->auth_hash = sha256;
+  coap_pkt->auth_hash_len = hash_length;
 
   // Don't set option in map because this would exceed the FSRAM size
   // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
@@ -1327,7 +1332,9 @@ int
 enable_authenticity_check(void *coap_pkt, uint8_t retransmission_counter) {
   coap_set_header_experimental(coap_pkt, 0x42);
   coap_set_header_auth_counter(coap_pkt, retransmission_counter);
-  coap_set_header_auth_hash(coap_pkt);
+  static uint8_t sha256[32];
+  coap_calculate_auth_hash(coap_pkt, (const char *) sha256);
+  coap_set_header_auth_hash(coap_pkt, (const char *) sha256, sizeof(sha256));
   return 1;
 }
 /*---------------------------------------------------------------------------*/
