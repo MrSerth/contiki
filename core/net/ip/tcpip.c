@@ -550,9 +550,9 @@ tcpip_ipv6_output(void)
   }
 
   if (tcpip_filter_packet()) {
-    PRINTF("DROPPING packet due to inspection");
-    uip_clear_buf();
-    return;
+    PRINTF("DROPPING packet due to inspection\n");
+//    uip_clear_buf();
+//    return;
   }
 
 #if UIP_CONF_IPV6_RPL
@@ -565,9 +565,9 @@ tcpip_ipv6_output(void)
 
   // Inspect the packet a second time due to wrapped / unwrapped RPL.
   if (tcpip_filter_packet()) {
-    PRINTF("DROPPING packet due to inspection");
-    uip_clear_buf();
-    return;
+    PRINTF("DROPPING packet due to inspection\n");
+//    uip_clear_buf();
+//    return;
   }
 #endif /* UIP_CONF_IPV6_RPL */
 
@@ -861,6 +861,7 @@ PROCESS_THREAD(tcpip_process, ev, data)
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/
+#ifdef BORDER_ROUTER_FILTER_COAP
 bool
 tcpip_filter_packet(void)
 {
@@ -890,7 +891,7 @@ tcpip_filter_packet(void)
     unsigned char coap_data[length]; // required to parse CoAP message and forward original packet
     memcpy(coap_data, orignal_data, length);
 
-    PRINTF("- CoAP packet raw data: ");
+    PRINTF("-CoAP packet raw data: ");
     for (uint8_t i = 0; i < length; ++i) {
       PRINTF("%02x ",coap_data[i]);
     }
@@ -898,7 +899,39 @@ tcpip_filter_packet(void)
 
     static coap_packet_t coap_pkt[1];
     coap_parse_message(coap_pkt, coap_data, length); // function call has side effect on coap_data!
+
+    static uint8_t sha256[32];
+    coap_calculate_auth_hash(coap_pkt, (const char *) sha256);
+
+    PRINTF("-HASH in packet: ");
+    for (uint8_t i = 0; i < coap_pkt->auth_hash_len; ++i) {
+      PRINTF("%02x ",coap_pkt->auth_hash[i]);
+    }
+    PRINTF("\b-\n");
+
+    PRINTF("-HASH calc: ");
+    for (uint8_t i = 0; i < sizeof(sha256); ++i) {
+      PRINTF("%02x ",sha256[i]);
+    }
+    PRINTF("\b-\n");
+
+    uint8_t hash_comparison = memcmp(sha256,coap_pkt->auth_hash,sizeof(sha256));
+    PRINTF("hash comparison, (0 indicates the hashs are equal): %i\n", hash_comparison);
+
+    if(hash_comparison == 0) {
+      PRINTF("hash is valid!\n");
+    } else {
+      PRINTF("hash is invalid!!! FILTER packet\n");
+      return true;
+    }
   }
   return false;
 }
+#else
+bool
+tcpip_filter_packet(void)
+{
+  return false;
+}
+#endif /* BORDER_ROUTER_FILTER_COAP */
 /*---------------------------------------------------------------------------*/
