@@ -1290,14 +1290,14 @@ coap_calculate_auth_hash(void *packet, const char * sha256)
   uint8_t counter = coap_pkt->auth_counter;
   uint8_t * payload = coap_pkt->payload;
   uint16_t payload_len = coap_pkt->payload_len;
-  uint8_t psk = 1;
+  uint8_t psk[] = presharedkey;
 
   uint32_t hex_all_len = sizeof(mid) + sizeof(counter) + payload_len + sizeof(psk);
   char hex_all[hex_all_len];
   memcpy(hex_all, &mid, sizeof(mid));
   memcpy(hex_all + sizeof(mid), &counter, sizeof(counter));
   memcpy(hex_all + sizeof(mid) + sizeof(counter), payload, payload_len);
-  memcpy(hex_all + sizeof(mid) + sizeof(counter) + payload_len, &psk, sizeof(psk));
+  memcpy(hex_all + sizeof(mid) + sizeof(counter) + payload_len, psk, sizeof(psk));
 
   PRINTF("input data for hash: ");
   for (uint8_t i = 0; i < hex_all_len; ++i){

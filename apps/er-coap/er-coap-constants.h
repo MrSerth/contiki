@@ -60,6 +60,11 @@
 #define COAP_HEADER_OPTION_DELTA_MASK        0xF0
 #define COAP_HEADER_OPTION_SHORT_LENGTH_MASK 0x0F
 
+#define presharedkey { 0x00 , 0x01 , 0x02 , 0x03 , \
+                       0x04 , 0x05 , 0x06 , 0x07 , \
+                       0x08 , 0x09 , 0x0A , 0x0B , \
+                       0x0C , 0x0D , 0x0E , 0x0F }
+
 /* CoAP message types */
 typedef enum {
   COAP_TYPE_CON,                /* confirmables */
@@ -137,7 +142,7 @@ typedef enum {
   COAP_OPTION_SIZE1 = 60,       /* 0-4 B */
   COAP_OPTION_EXPERIMENTAL = 65000, /* 0-1 B */
   COAP_OPTION_AUTH_COUNTER = 65001, /* 1 B */
-  COAP_OPTION_AUTH_HASH = 65002, /* :) */
+  COAP_OPTION_AUTH_HASH = 65002, /* 32 B */
 } coap_option_t;
 
 /* CoAP Content-Formats */
