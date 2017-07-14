@@ -902,6 +902,7 @@ tcpip_filter_packet(void)
 
     static uint8_t sha256[32];
     coap_calculate_auth_hash(coap_pkt, (const char *) sha256);
+    PRINTF("\b\b\n");
 
     PRINTF("-HASH in packet: ");
     for (uint8_t i = 0; i < coap_pkt->auth_hash_len; ++i) {
@@ -916,7 +917,7 @@ tcpip_filter_packet(void)
     PRINTF("\b-\n");
 
     uint8_t hash_comparison = memcmp(sha256,coap_pkt->auth_hash,sizeof(sha256));
-    PRINTF("hash comparison, (0 indicates the hashs are equal): %i\n", hash_comparison);
+    PRINTF("hash comparison (0 indicates the hashs are equal): %i\n", hash_comparison);
 
     if(hash_comparison == 0) {
       PRINTF("hash is valid!\n");
