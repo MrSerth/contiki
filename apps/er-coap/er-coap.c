@@ -1504,3 +1504,49 @@ enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_
   encrypt_payload(packet);
   return 1;
 }
+/*---------------------------------------------------------------------------*/
+bool
+coap_valid_auth_hash(void *packet) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+  static uint8_t sha256[32];
+  coap_calculate_auth_hash(coap_pkt, (char *) sha256);
+  PRINTF("\b\b\n");
+
+  PRINTF("-HASH calc: ");
+  for (uint8_t i = 0; i < sizeof(sha256); ++i) {
+    PRINTF("%02x ",sha256[i]);
+  }
+  PRINTF("\b-\n");
+
+  uint8_t hash_comparison = (uint8_t) memcmp(sha256, coap_pkt->auth_hash, sizeof(sha256));
+  PRINTF("Hash comparison (0 indicates the hashs are equal): %i\n", hash_comparison);
+
+  if (hash_comparison == 0) {
+    PRINTF("Hash is valid!\n");
+    return true;
+  } else {
+    PRINTF("Hash is invalid!!! FILTER packet\n");
+    return false;
+  }
+}
+/*---------------------------------------------------------------------------*/
+bool
+coap_malware_free(void *packet) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  if (coap_pkt->encr_alg != 0) {
+    PRINTF("encryption failed - Packet might be corrupted!!! FILTER packet\n");
+    return true;
+  }
+
+  PRINTF("Payload was unencrypted or encryption successful. SCANNING...\n");
+  if (strstr((const char *)coap_pkt->payload, "EICAR") != NULL) {
+    PRINTF("VIRUS found!!! FILTER packet\n");
+    return false;
+  } else {
+    PRINTF("Result: No virus found.\n");
+    return true;
+  }
+}
+/*---------------------------------------------------------------------------*/

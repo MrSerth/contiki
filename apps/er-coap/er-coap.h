@@ -290,5 +290,7 @@ int enable_integrity_check(void *packet, uint8_t retransmission_counter);
 int encrypt_payload(void *packet);
 int decrypt_payload(void *packet);
 int enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter);
+bool coap_valid_auth_hash(void *packet);
+bool coap_malware_free(void *packet);
 
 #endif /* ER_COAP_H_ */
