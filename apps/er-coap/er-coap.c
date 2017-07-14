@@ -42,6 +42,7 @@
 #include "sys/cc.h"
 #include "contiki-net.h"
 #include "dev/sha256.h"
+#include "lib/aes-128.h"
 
 #include "er-coap.h"
 #include "er-coap-transactions.h"
@@ -340,7 +341,7 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
   coap_pkt->buffer[3] = (uint8_t)(coap_pkt->mid);
 
   /* set experimental headers */
-  enable_authenticity_check(coap_pkt, retransmission_counter);
+  enable_integrity_check(coap_pkt, retransmission_counter);
 
   /* empty packet, dont need to do more stuff */
   if(!coap_pkt->code) {
@@ -399,8 +400,9 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_SIZE1, size1, "Size1");
 
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_EXPERIMENTAL, experimental, "Experimental");
-  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, auth_counter, "Authenticity Counter");
-  COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_AUTH_HASH, auth_hash, '\0', "Authenticity Hash");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, auth_counter, "Integrity Counter");
+  COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_AUTH_HASH, auth_hash, '\0', "Integrity Hash");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_ENCR_ALG, encr_alg, "Encryption Algorithm");
 
   PRINTF("-Done serializing at %p----\n", option);
 
@@ -446,7 +448,7 @@ void
 coap_send_message_with_counter(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
                   uint16_t length, uint8_t counter)
 {
-  /* Authenticity check */
+  /* Integrity check */
   if (counter != 0) {
     static coap_packet_t coap_pkt[1];
     coap_parse_message(coap_pkt, data, length);
@@ -716,18 +718,22 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       break;
     case COAP_OPTION_AUTH_COUNTER:
       coap_pkt->auth_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
-      PRINTF("Authenticity Counter [%u]\n", (uint8_t)coap_pkt->auth_counter);
+      PRINTF("Integrity Counter [%u]\n", (uint8_t)coap_pkt->auth_counter);
       break;
     case COAP_OPTION_AUTH_HASH:
       /* coap_merge_multi_option() operates in-place on the IPBUF, but final packet field should be const string -> cast to string */
       coap_merge_multi_option((char **)&(coap_pkt->auth_hash),
                               &(coap_pkt->auth_hash_len), current_option,
                               option_length, '\0');
-      PRINTF("Authenticity Hash [");
+      PRINTF("Integrity Hash [");
       for (uint8_t i = 0; i < coap_pkt->auth_hash_len; ++i){
         PRINTF("%02x ", coap_pkt->auth_hash[i]);
       }
       PRINTF("\b]\n");
+      break;
+    case COAP_OPTION_ENCR_ALG:
+      coap_pkt->encr_alg = (uint8_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Encryption Algorithm [%u]\n", (uint8_t)coap_pkt->encr_alg);
       break;
     default:
       PRINTF("unknown (%u)\n", option_number);
@@ -1329,12 +1335,96 @@ coap_set_header_auth_hash(void *packet, const char * sha256, size_t hash_length)
 }
 /*---------------------------------------------------------------------------*/
 int
-enable_authenticity_check(void *coap_pkt, uint8_t retransmission_counter) {
+coap_set_header_encr_alg(void *packet, uint8_t value) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+  coap_pkt->encr_alg = value;
+
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_encrypt_payload(void *packet) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  uint8_t psk[] = presharedkey;
+  uint8_t padding_len = (uint8_t) (16 - (coap_pkt->payload_len % 16));
+  uint8_t cipher_block[coap_pkt->payload_len + padding_len];
+
+  memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
+  memset(cipher_block + coap_pkt->payload_len, padding_len, padding_len);
+
+  PRINTF("plain input data for AES: ");
+  for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
+    PRINTF("%02x ", cipher_block[i]);
+  }
+  PRINTF("\b, ");
+
+  AES_128_GET_LOCK();
+  AES_128.set_key(psk);
+  AES_128.encrypt(cipher_block);
+  AES_128_RELEASE_LOCK();
+
+  PRINTF("encrypted output data from AES: ");
+  for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
+    PRINTF("%02x ", cipher_block[i]);
+  }
+  PRINTF("\b, ");
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_decrypt_payload(void *packet) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  uint8_t psk[] = presharedkey;
+  uint8_t cipher_block[] = {0x95, 0x4f, 0x64, 0xf2, 0xe4, 0xe8, 0x6e, 0x9e, 0xee, 0x82, 0xd2, 0x02, 0x16, 0x68, 0x48, 0x99};
+//  uint8_t cipher_block[coap_pkt->payload_len];
+//  memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
+
+  PRINTF("encrypted input data for AES: ");
+  for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
+    PRINTF("%02x ", cipher_block[i]);
+  }
+  PRINTF("\b, ");
+
+  AES_128_GET_LOCK();
+  AES_128.set_key(psk);
+  AES_128.decrypt(cipher_block);
+  AES_128_RELEASE_LOCK();
+
+  PRINTF("decrypted output data from AES: ");
+  for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
+    PRINTF("%02x ", cipher_block[i]);
+  }
+  PRINTF("\b, ");
+
+  uint8_t padding_len = cipher_block[sizeof(cipher_block - 1)];
+
+  uint8_t decrypted_payload[sizeof(cipher_block) - padding_len];
+  memcpy(decrypted_payload, cipher_block, sizeof(decrypted_payload));
+
+  PRINTF("decrypted payload: ");
+  for (uint8_t i = 0; i < sizeof(decrypted_payload); ++i){
+    PRINTF("%02x ", decrypted_payload[i]);
+  }
+  PRINTF("\b, ");
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+enable_integrity_check(void *coap_pkt, uint8_t retransmission_counter) {
   coap_set_header_experimental(coap_pkt, 0x42);
   coap_set_header_auth_counter(coap_pkt, retransmission_counter);
   static uint8_t sha256[32];
   coap_calculate_auth_hash(coap_pkt, (const char *) sha256);
   coap_set_header_auth_hash(coap_pkt, (const char *) sha256, sizeof(sha256));
+  coap_encrypt_payload(coap_pkt);
+  coap_decrypt_payload(coap_pkt);
+  coap_set_header_encr_alg(coap_pkt, 0x01);
   return 1;
 }
 /*---------------------------------------------------------------------------*/

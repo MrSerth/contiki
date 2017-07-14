@@ -135,11 +135,12 @@ typedef struct {
   uint8_t auth_counter;
   size_t auth_hash_len;
   const char *auth_hash;
+  uint8_t encr_alg;
 } coap_packet_t;
 
 /* option format serialization */
 #define COAP_SERIALIZE_INT_OPTION(number, field, text) \
-  if(number >= COAP_OPTION_EXPERIMENTAL || IS_OPTION(coap_pkt, number)) { \
+  if((number >= COAP_OPTION_EXPERIMENTAL && coap_pkt->field != 0x00) || (!(number >= COAP_OPTION_EXPERIMENTAL) && IS_OPTION(coap_pkt, number))) { \
     PRINTF(text " [%u]\n", (unsigned int)coap_pkt->field); \
     option += coap_serialize_int_option(number, current_number, option, coap_pkt->field); \
     current_number = number; \
@@ -280,6 +281,8 @@ int coap_set_header_experimental(void *packet, uint8_t value);
 int coap_set_header_auth_counter(void *packet, uint8_t value);
 int coap_calculate_auth_hash(void *packet, const char *hash);
 int coap_set_header_auth_hash(void *packet, const char *hash, size_t hash_length);
-int enable_authenticity_check(void *packet, uint8_t retransmission_counter);
+int coap_set_header_encr_alg(void *packet, uint8_t value);
+int coap_encrypt_payload(void *packet);
+int enable_integrity_check(void *packet, uint8_t retransmission_counter);
 
 #endif /* ER_COAP_H_ */
