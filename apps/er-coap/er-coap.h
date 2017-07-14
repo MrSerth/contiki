@@ -284,7 +284,7 @@ int coap_set_header_auth_hash(void *packet, const char *hash, size_t hash_length
 uint8_t coap_calculate_padding_len(void *packet);
 int coap_calculate_encrypted_payload(void *packet, char *encrypted_payload, uint16_t encrypted_payload_len,
                                      uint8_t padding_len);
-int coap_calculate_decrypted_payload(void *packet, char *decrypted_payload);
+int32_t coap_calculate_decrypted_payload(void *packet, char *decrypted_payload);
 int coap_set_header_encr_alg(void *packet, uint8_t value);
 int enable_integrity_check(void *packet, uint8_t retransmission_counter);
 int encrypt_payload(void *packet);

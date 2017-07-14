@@ -534,6 +534,10 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       }
       coap_pkt->payload[coap_pkt->payload_len] = '\0';
 
+      if (coap_pkt->encr_alg == 0x01) {
+        decrypt_payload(coap_pkt);
+      }
+
       break;
     }
 
@@ -1352,7 +1356,7 @@ coap_calculate_encrypted_payload(void *packet, char *encrypted_payload,
   memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
   memset(cipher_block + coap_pkt->payload_len, padding_len, padding_len);
 
-  PRINTF("input data for AES: ");
+  PRINTF("plain input data for AES: ");
   for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
     PRINTF("%02x ", cipher_block[i]);
   }
@@ -1368,44 +1372,51 @@ coap_calculate_encrypted_payload(void *packet, char *encrypted_payload,
   return 1;
 }
 /*---------------------------------------------------------------------------*/
-int
-coap_calculate_decrypted_payload(void *packet, char *decrypted_pay) {
+/**
+ * @return the decrypted payload length (always smaller than the encrpted payload length due to padding).
+ *         In case of an error, -1 is returned.
+ */
+int32_t
+coap_calculate_decrypted_payload(void *packet, char *decrypted_payload) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
+  if ((coap_pkt->payload_len % 16) != 0) {
+    return -1;
+  }
+
   uint8_t psk[] = presharedkey;
-  uint8_t cipher_block[] = {0x95, 0x4f, 0x64, 0xf2, 0xe4, 0xe8, 0x6e, 0x9e, 0xee, 0x82, 0xd2, 0x02, 0x16, 0x68, 0x48, 0x99};
-//  uint8_t cipher_block[coap_pkt->payload_len];
-//  memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
+  uint8_t cipher_block[coap_pkt->payload_len];
+  memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
 
   PRINTF("encrypted input data for AES: ");
   for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
     PRINTF("%02x ", cipher_block[i]);
   }
-  PRINTF("\b, ");
+  PRINTF("\b\n");
 
   AES_128_GET_LOCK();
   AES_128.set_key(psk);
   AES_128.decrypt(cipher_block);
   AES_128_RELEASE_LOCK();
 
-  PRINTF("decrypted output data from AES: ");
-  for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
-    PRINTF("%02x ", cipher_block[i]);
+  uint8_t padding_len = cipher_block[sizeof(cipher_block) - 1];
+
+  // Check for correct padding
+  bool decryption_padding_error = false;
+  for (uint8_t i = padding_len; i > 0; --i) {
+    if (cipher_block[sizeof(cipher_block) - i] != padding_len) {
+      decryption_padding_error |= true;
+    }
   }
-  PRINTF("\b, ");
 
-  uint8_t padding_len = cipher_block[sizeof(cipher_block - 1)];
-
-  uint8_t decrypted_payload[sizeof(cipher_block) - padding_len];
-  memcpy(decrypted_payload, cipher_block, sizeof(decrypted_payload));
-
-  PRINTF("decrypted payload: ");
-  for (uint8_t i = 0; i < sizeof(decrypted_payload); ++i){
-    PRINTF("%02x ", decrypted_payload[i]);
+  if (decryption_padding_error) {
+    return -1;
   }
-  PRINTF("\b, ");
 
-  return 1;
+  uint16_t decrypted_payload_len = sizeof(cipher_block) - padding_len;
+  memcpy(decrypted_payload, cipher_block, decrypted_payload_len);
+
+  return decrypted_payload_len;
 }
 /*---------------------------------------------------------------------------*/
 int
@@ -1442,6 +1453,7 @@ encrypt_payload(void *packet) {
     encrypted_payload = (uint8_t *) new_ptr;
   } else { // realloc failed - probably out of memory
     free(encrypted_payload);
+    return 0;
   }
 
   coap_calculate_encrypted_payload(packet, (char *) encrypted_payload, encrypted_payload_len, padding_len);
@@ -1455,6 +1467,33 @@ encrypt_payload(void *packet) {
 int
 decrypt_payload(void *packet) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  static uint8_t *decrypted_payload = NULL;
+
+  void *new_ptr = realloc(decrypted_payload, coap_pkt->payload_len * sizeof(uint8_t));
+  if (new_ptr != NULL) {
+    decrypted_payload = (uint8_t *) new_ptr;
+  } else { // realloc failed - probably out of memory
+    free(decrypted_payload);
+    return 0;
+  }
+
+  int32_t decrypted_payload_len = coap_calculate_decrypted_payload(packet, (char *) decrypted_payload);
+  if (decrypted_payload_len == -1) {
+    PRINTF("DECRYPTION FAILED! Check the payload length (multiple of 16), the payload itself and PSK\n");
+    return 0;
+  }
+
+  new_ptr = realloc(decrypted_payload, decrypted_payload_len * sizeof(uint8_t));
+  if (new_ptr != NULL) {
+    decrypted_payload = (uint8_t *) new_ptr;
+  } else { // realloc failed - probably out of memory
+    free(decrypted_payload);
+    return 0;
+  }
+
+  coap_set_header_encr_alg(packet, 0x00);
+  coap_set_payload(packet, decrypted_payload, (uint16_t) decrypted_payload_len);
 
   return 1;
 }
