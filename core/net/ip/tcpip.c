@@ -53,6 +53,7 @@
 #endif
 
 #include <string.h>
+#include <apps/er-coap/er-coap.h>
 #include "apps/er-coap/er-coap.h"
 
 #define DEBUG DEBUG_FULL
@@ -869,6 +870,8 @@ tcpip_filter_packet(void)
   // indicates that the packet should not be filtered and processing should continue
   PRINTF("INSPECT Protocol: %u\n", UIP_IP_BUF->proto);
 
+  bool filter = false;
+
   if (UIP_IP_BUF->proto == UIP_PROTO_HBHO) {
     PRINTF("RPL header found, do nothing.\n");
   } else if (UIP_IP_BUF->proto == UIP_PROTO_ICMP6) {
@@ -900,15 +903,14 @@ tcpip_filter_packet(void)
     static coap_packet_t coap_pkt[1];
     coap_parse_message(coap_pkt, coap_data, length); // function call has side effect on coap_data!
 
+    PRINTF("  Parsed: v %u, t %u, tkl %u, c %u, mid %u\n", coap_pkt->version,
+           coap_pkt->type, coap_pkt->token_len, coap_pkt->code, coap_pkt->mid);
+    PRINTF("  URL: %.*s\n", coap_pkt->uri_path_len, coap_pkt->uri_path);
+    PRINTF("  Payload: %.*s\n", coap_pkt->payload_len, coap_pkt->payload);
+
     static uint8_t sha256[32];
     coap_calculate_auth_hash(coap_pkt, (char *) sha256);
     PRINTF("\b\b\n");
-
-    PRINTF("-HASH in packet: ");
-    for (uint8_t i = 0; i < coap_pkt->auth_hash_len; ++i) {
-      PRINTF("%02x ",coap_pkt->auth_hash[i]);
-    }
-    PRINTF("\b-\n");
 
     PRINTF("-HASH calc: ");
     for (uint8_t i = 0; i < sizeof(sha256); ++i) {
@@ -916,17 +918,30 @@ tcpip_filter_packet(void)
     }
     PRINTF("\b-\n");
 
-    uint8_t hash_comparison = memcmp(sha256,coap_pkt->auth_hash,sizeof(sha256));
-    PRINTF("hash comparison (0 indicates the hashs are equal): %i\n", hash_comparison);
+    uint8_t hash_comparison = (uint8_t) memcmp(sha256, coap_pkt->auth_hash, sizeof(sha256));
+    PRINTF("Hash comparison (0 indicates the hashs are equal): %i\n", hash_comparison);
 
-    if(hash_comparison == 0) {
-      PRINTF("hash is valid!\n");
+    if (hash_comparison == 0) {
+      PRINTF("Hash is valid!\n");
     } else {
-      PRINTF("hash is invalid!!! FILTER packet\n");
+      PRINTF("Hash is invalid!!! FILTER packet\n");
+      filter = true;
+    }
+
+    if (coap_pkt->encr_alg != 0) {
+      PRINTF("encryption failed - Packet might be corrupted!!! FILTER packet\n");
       return true;
     }
+
+    PRINTF("Payload was unencrypted or encryption successful. SCANNING...\n");
+    if (strstr((const char *)coap_pkt->payload, "EICAR") != NULL) {
+      PRINTF("VIRUS found!!! FILTER packet\n");
+      filter = true;
+    } else {
+      PRINTF("Result: No virus found.\n");
+    }
   }
-  return false;
+  return filter;
 }
 #else
 bool
