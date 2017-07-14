@@ -901,7 +901,7 @@ tcpip_filter_packet(void)
     coap_parse_message(coap_pkt, coap_data, length); // function call has side effect on coap_data!
 
     static uint8_t sha256[32];
-    coap_calculate_auth_hash(coap_pkt, (const char *) sha256);
+    coap_calculate_auth_hash(coap_pkt, (char *) sha256);
     PRINTF("\b\b\n");
 
     PRINTF("-HASH in packet: ");

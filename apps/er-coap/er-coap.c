@@ -1433,7 +1433,7 @@ int
 enable_integrity_check(void *packet, uint8_t retransmission_counter) {
   coap_set_header_experimental(packet, 0x42);
   coap_set_header_auth_counter(packet, retransmission_counter);
-  uint8_t sha256[32];
+  static uint8_t sha256[32];
   coap_calculate_auth_hash(packet, (char *) sha256);
   coap_set_header_auth_hash(packet, (const char *) sha256, sizeof(sha256));
 
@@ -1480,7 +1480,7 @@ decrypt_payload(void *packet) {
 
   int32_t decrypted_payload_len = coap_calculate_decrypted_payload(packet, (char *) decrypted_payload);
   if (decrypted_payload_len == -1) {
-    PRINTF("DECRYPTION FAILED! Check the payload length (multiple of 16), the payload itself and PSK\n");
+    PRINTF("DECRYPTION FAILED! Check the payload length (multiple of 16), the payload itself and the PSK\n");
     return 0;
   }
 
