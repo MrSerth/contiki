@@ -38,6 +38,7 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "contiki.h"
 #include "sys/cc.h"
 #include "contiki-net.h"
@@ -341,7 +342,7 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
   coap_pkt->buffer[3] = (uint8_t)(coap_pkt->mid);
 
   /* set experimental headers */
-  enable_integrity_check(coap_pkt, retransmission_counter);
+  enable_integrity_check_and_encrypt_payload(coap_pkt, retransmission_counter);
 
   /* empty packet, dont need to do more stuff */
   if(!coap_pkt->code) {
@@ -1288,7 +1289,7 @@ coap_set_header_auth_counter(void *packet, uint8_t value)
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_calculate_auth_hash(void *packet, const char * sha256)
+coap_calculate_auth_hash(void *packet, char *sha256)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
@@ -1324,7 +1325,7 @@ coap_calculate_auth_hash(void *packet, const char * sha256)
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_set_header_auth_hash(void *packet, const char * sha256, size_t hash_length) {
+coap_set_header_auth_hash(void *packet, const char *sha256, size_t hash_length) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
   coap_pkt->auth_hash = sha256;
   coap_pkt->auth_hash_len = hash_length;
@@ -1334,28 +1335,24 @@ coap_set_header_auth_hash(void *packet, const char * sha256, size_t hash_length)
   return 1;
 }
 /*---------------------------------------------------------------------------*/
-int
-coap_set_header_encr_alg(void *packet, uint8_t value) {
+uint8_t
+coap_calculate_padding_len(void *packet) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
-  coap_pkt->encr_alg = value;
-
-  // Don't set option in map because this would exceed the FSRAM size
-  // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
-  return 1;
+  return (uint8_t) (16 - (coap_pkt->payload_len % 16));
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_encrypt_payload(void *packet) {
+coap_calculate_encrypted_payload(void *packet, char *encrypted_payload,
+                                 uint16_t encrypted_payload_len, uint8_t padding_len) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   uint8_t psk[] = presharedkey;
-  uint8_t padding_len = (uint8_t) (16 - (coap_pkt->payload_len % 16));
-  uint8_t cipher_block[coap_pkt->payload_len + padding_len];
+  uint8_t cipher_block[encrypted_payload_len];
 
   memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
   memset(cipher_block + coap_pkt->payload_len, padding_len, padding_len);
 
-  PRINTF("plain input data for AES: ");
+  PRINTF("input data for AES: ");
   for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
     PRINTF("%02x ", cipher_block[i]);
   }
@@ -1366,17 +1363,13 @@ coap_encrypt_payload(void *packet) {
   AES_128.encrypt(cipher_block);
   AES_128_RELEASE_LOCK();
 
-  PRINTF("encrypted output data from AES: ");
-  for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
-    PRINTF("%02x ", cipher_block[i]);
-  }
-  PRINTF("\b, ");
+  memcpy(encrypted_payload, cipher_block, encrypted_payload_len);
 
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_decrypt_payload(void *packet) {
+coap_calculate_decrypted_payload(void *packet, char *decrypted_pay) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   uint8_t psk[] = presharedkey;
@@ -1416,15 +1409,59 @@ coap_decrypt_payload(void *packet) {
 }
 /*---------------------------------------------------------------------------*/
 int
-enable_integrity_check(void *coap_pkt, uint8_t retransmission_counter) {
-  coap_set_header_experimental(coap_pkt, 0x42);
-  coap_set_header_auth_counter(coap_pkt, retransmission_counter);
-  static uint8_t sha256[32];
-  coap_calculate_auth_hash(coap_pkt, (const char *) sha256);
-  coap_set_header_auth_hash(coap_pkt, (const char *) sha256, sizeof(sha256));
-  coap_encrypt_payload(coap_pkt);
-  coap_decrypt_payload(coap_pkt);
-  coap_set_header_encr_alg(coap_pkt, 0x01);
+coap_set_header_encr_alg(void *packet, uint8_t value) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+  coap_pkt->encr_alg = value;
+
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
+int
+enable_integrity_check(void *packet, uint8_t retransmission_counter) {
+  coap_set_header_experimental(packet, 0x42);
+  coap_set_header_auth_counter(packet, retransmission_counter);
+  uint8_t sha256[32];
+  coap_calculate_auth_hash(packet, (char *) sha256);
+  coap_set_header_auth_hash(packet, (const char *) sha256, sizeof(sha256));
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+encrypt_payload(void *packet) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  uint8_t padding_len = coap_calculate_padding_len(coap_pkt);
+  uint16_t encrypted_payload_len = (uint16_t) (coap_pkt->payload_len + padding_len);
+  static uint8_t *encrypted_payload = NULL;
+
+  void *new_ptr = realloc(encrypted_payload, encrypted_payload_len * sizeof(uint8_t));
+  if (new_ptr != NULL) {
+    encrypted_payload = (uint8_t *) new_ptr;
+  } else { // realloc failed - probably out of memory
+    free(encrypted_payload);
+  }
+
+  coap_calculate_encrypted_payload(packet, (char *) encrypted_payload, encrypted_payload_len, padding_len);
+  coap_set_header_encr_alg(packet, 0x01);
+  coap_set_payload(packet, encrypted_payload, encrypted_payload_len);
+
+  // encrypted_payload is not freed by design because otherwise the pointer to the payload would become invalid
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+decrypt_payload(void *packet) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter) {
+  enable_integrity_check(packet, retransmission_counter);
+  encrypt_payload(packet);
+  return 1;
+}

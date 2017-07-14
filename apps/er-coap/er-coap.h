@@ -279,10 +279,16 @@ int coap_set_payload(void *packet, const void *payload, size_t length);
 
 int coap_set_header_experimental(void *packet, uint8_t value);
 int coap_set_header_auth_counter(void *packet, uint8_t value);
-int coap_calculate_auth_hash(void *packet, const char *hash);
+int coap_calculate_auth_hash(void *packet, char *hash);
 int coap_set_header_auth_hash(void *packet, const char *hash, size_t hash_length);
+uint8_t coap_calculate_padding_len(void *packet);
+int coap_calculate_encrypted_payload(void *packet, char *encrypted_payload, uint16_t encrypted_payload_len,
+                                     uint8_t padding_len);
+int coap_calculate_decrypted_payload(void *packet, char *decrypted_payload);
 int coap_set_header_encr_alg(void *packet, uint8_t value);
-int coap_encrypt_payload(void *packet);
 int enable_integrity_check(void *packet, uint8_t retransmission_counter);
+int encrypt_payload(void *packet);
+int decrypt_payload(void *packet);
+int enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter);
 
 #endif /* ER_COAP_H_ */
