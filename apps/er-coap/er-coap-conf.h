@@ -61,8 +61,8 @@
 /* Conservative size limit, as not all options have to be set at the same time. Check when Proxy-Uri option is used */
 #ifndef COAP_MAX_HEADER_SIZE    /*     Hdr                  CoF  If-Match         Obs Blo strings   */
 #define COAP_MAX_HEADER_SIZE           (4 + COAP_TOKEN_LEN + 3 + 1 + COAP_ETAG_LEN + 4 + 4 + 30 + \
-                                /*     Auth options     */ \
-                                        1 + 1 + 32)  /* 65 + 34 */
+                                /*     Auth options + Enc.   */ \
+                                        1 + 1 + 32  +  1)  /* 65 + 35 */
 #endif /* COAP_MAX_HEADER_SIZE */
 
 /* Number of observer slots (each takes abot xxx bytes) */
