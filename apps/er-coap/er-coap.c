@@ -1554,7 +1554,6 @@ coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
 /*---------------------------------------------------------------------------*/
 int
 coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
-  coap_set_header_experimental(packet, 0x42);
   coap_set_header_auth_counter(packet, retransmission_counter);
 
   // Set a dummy value to reserve space for later update
