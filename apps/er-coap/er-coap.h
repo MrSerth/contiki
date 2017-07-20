@@ -133,8 +133,8 @@ typedef struct {
 
   uint8_t experimental;
   uint8_t auth_counter;
-  size_t auth_hash_len;
-  const char *auth_hash;
+  size_t hmac_len;
+  const char *hmac;
   uint8_t encr_alg;
 } coap_packet_t;
 
@@ -162,12 +162,12 @@ typedef struct {
   }
 #define COAP_SERIALIZE_STRING_OPTION(number, field, splitter, text) \
   if(number >= COAP_OPTION_EXPERIMENTAL || IS_OPTION(coap_pkt, number)) { \
-    if(number != COAP_OPTION_AUTH_HASH) { \
+    if(number != COAP_OPTION_HMAC) { \
       PRINTF(text " [%.*s]\n", (int)coap_pkt->field##_len, coap_pkt->field); \
     } else { \
       PRINTF(text " ["); \
-      for (uint8_t i = 0; i < coap_pkt->auth_hash_len; ++i){ \
-        PRINTF("%02x ", coap_pkt->auth_hash[i]); \
+      for (uint8_t i = 0; i < coap_pkt->hmac_len; ++i){ \
+        PRINTF("%02x ", coap_pkt->hmac[i]); \
       } \
       PRINTF("\b]\n"); \
     } \
@@ -279,18 +279,19 @@ int coap_set_payload(void *packet, const void *payload, size_t length);
 
 int coap_set_header_experimental(void *packet, uint8_t value);
 int coap_set_header_auth_counter(void *packet, uint8_t value);
-int coap_calculate_auth_hash(void *packet, char *hash);
-int coap_set_header_auth_hash(void *packet, const char *hash, size_t hash_length);
+int coap_calculate_hmac(uint8_t *hmac, uint8_t *data, size_t data_len);
+int coap_set_header_hmac(void *packet, const char *hmac, size_t hmac_length);
 uint8_t coap_calculate_padding_len(void *packet);
 int coap_calculate_encrypted_payload(void *packet, char *encrypted_payload, uint16_t encrypted_payload_len,
                                      uint8_t padding_len);
 int32_t coap_calculate_decrypted_payload(void *packet, char *decrypted_payload);
 int coap_set_header_encr_alg(void *packet, uint8_t value);
-int enable_integrity_check(void *packet, uint8_t retransmission_counter);
-int encrypt_payload(void *packet);
-int decrypt_payload(void *packet);
-int enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter);
-bool coap_valid_auth_hash(void *packet);
-bool coap_malware_free(void *packet);
+int coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len);
+int coap_enable_integrity_check(void *packet, uint8_t retransmission_counter);
+int coap_encrypt_payload(void *packet);
+int coap_decrypt_payload(void *packet);
+int coap_enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter);
+bool coap_is_valid_hmac(uint8_t *packet, uint8_t *byte_after_hmac, size_t packet_len);
+bool coap_is_malware_free(void *packet);
 
 #endif /* ER_COAP_H_ */

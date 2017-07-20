@@ -342,7 +342,7 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
   coap_pkt->buffer[3] = (uint8_t)(coap_pkt->mid);
 
   /* set experimental headers */
-  enable_integrity_check_and_encrypt_payload(coap_pkt, retransmission_counter);
+  coap_enable_integrity_check_and_encrypt_payload(coap_pkt, retransmission_counter);
 
   /* empty packet, dont need to do more stuff */
   if(!coap_pkt->code) {
@@ -402,7 +402,8 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
 
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_EXPERIMENTAL, experimental, "Experimental");
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, auth_counter, "Integrity Counter");
-  COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_AUTH_HASH, auth_hash, '\0', "Integrity Hash");
+  COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_HMAC, hmac, '\0', "HMAC");
+  uint8_t *byte_after_hmac = option;
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_ENCR_ALG, encr_alg, "Encryption Algorithm");
 
   PRINTF("-Done serializing at %p----\n", option);
@@ -422,6 +423,9 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
     return 0;
   }
 
+  size_t packet_len = (option - buffer) + coap_pkt->payload_len;
+  coap_update_hmac(coap_pkt, byte_after_hmac, packet_len);
+
   PRINTF("-Done %u B (header len %u, payload len %u)-\n",
          (unsigned int)(coap_pkt->payload_len + option - buffer),
          (unsigned int)(option - buffer),
@@ -436,7 +440,7 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
          coap_pkt->buffer[5], coap_pkt->buffer[6], coap_pkt->buffer[7]
          );
 
-  return (option - buffer) + coap_pkt->payload_len; /* packet length */
+  return packet_len;
 }
 /*---------------------------------------------------------------------------*/
 void
@@ -521,6 +525,8 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
   unsigned int option_delta = 0;
   size_t option_length = 0;
 
+  uint8_t *hmac_position = NULL;
+
   while(current_option < data + data_len) {
     /* payload marker 0xFF, currently only checking for 0xF* because rest is reserved */
     if((current_option[0] & 0xF0) == 0xF0) {
@@ -533,10 +539,6 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
         /* null-terminate payload */
       }
       coap_pkt->payload[coap_pkt->payload_len] = '\0';
-
-      if (coap_pkt->encr_alg == 0x01) {
-        decrypt_payload(coap_pkt);
-      }
 
       break;
     }
@@ -572,7 +574,8 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
     PRINTF("OPTION %u (delta %u, len %zu): ", option_number, option_delta,
            option_length);
 
-    SET_OPTION(coap_pkt, option_number);
+    if (option_number < COAP_OPTION_EXPERIMENTAL)
+      SET_OPTION(coap_pkt, option_number);
 
     switch(option_number) {
     case COAP_OPTION_CONTENT_FORMAT:
@@ -725,14 +728,15 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       coap_pkt->auth_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
       PRINTF("Integrity Counter [%u]\n", (uint8_t)coap_pkt->auth_counter);
       break;
-    case COAP_OPTION_AUTH_HASH:
+    case COAP_OPTION_HMAC:
       /* coap_merge_multi_option() operates in-place on the IPBUF, but final packet field should be const string -> cast to string */
-      coap_merge_multi_option((char **)&(coap_pkt->auth_hash),
-                              &(coap_pkt->auth_hash_len), current_option,
+      coap_merge_multi_option((char **)&(coap_pkt->hmac),
+                              &(coap_pkt->hmac_len), current_option,
                               option_length, '\0');
-      PRINTF("Integrity Hash [");
-      for (uint8_t i = 0; i < coap_pkt->auth_hash_len; ++i){
-        PRINTF("%02x ", coap_pkt->auth_hash[i]);
+      hmac_position = current_option;
+      PRINTF("HMAC [");
+      for (uint8_t i = 0; i < coap_pkt->hmac_len; ++i){
+        PRINTF("%02x ", coap_pkt->hmac[i]);
       }
       PRINTF("\b]\n");
       break;
@@ -753,7 +757,54 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
   }                             /* for */
   PRINTF("-Done parsing-------\n");
 
-  return NO_ERROR;
+
+
+  bool hmac_valid = false;
+  bool malware_free = false;
+  bool packet_was_encrypted = false;
+
+  if (hmac_position != NULL) { // HMAC option found in packet
+    hmac_valid = coap_is_valid_hmac(data, hmac_position, data_len);
+  }
+
+  packet_was_encrypted = (coap_pkt->encr_alg == 0x01);
+
+  if (packet_was_encrypted) {
+    coap_decrypt_payload(coap_pkt);
+  }
+
+  malware_free = coap_is_malware_free(coap_pkt);
+
+  PRINTF("-Done verification: ");
+
+  if (hmac_valid && malware_free && packet_was_encrypted) {
+    PRINTF("NO_ERROR-------\n");
+    return NO_ERROR;
+  } else if (hmac_valid && malware_free && !packet_was_encrypted) {
+    PRINTF("UNENCRYPTED-------\n");
+    return NO_ERROR; //UNENCRYPTED;
+  } else if (hmac_valid && !malware_free && packet_was_encrypted) {
+    PRINTF("ENCRYPTED_MALWARE-------\n");
+    return ENCRYPTED_MALWARE;
+  } else if (hmac_valid && !malware_free && !packet_was_encrypted) {
+    PRINTF("UNENCRYPTED_MALWARE-------\n");
+    return UNENCRYPTED_MALWARE;
+  } else if (!hmac_valid && malware_free && packet_was_encrypted) {
+    PRINTF("ENCRYPTED_HMAC_INVALID-------\n");
+    return ENCRYPTED_HMAC_INVALID;
+  } else if (!hmac_valid && malware_free && !packet_was_encrypted) {
+    PRINTF("UNENCRYPTED_HMAC_INVALID-------\n");
+    return NO_ERROR; //UNENCRYPTED_HMAC_INVALID;
+  } else if (!hmac_valid && !malware_free && packet_was_encrypted) {
+    PRINTF("ENCRYPTED_MALWARE_WITH_HMAC_INVALID-------\n");
+    return ENCRYPTED_MALWARE_WITH_HMAC_INVALID;
+  } else if (!hmac_valid && !malware_free && !packet_was_encrypted) {
+    PRINTF("UNENCRYPTED_MALWARE_WITH_HMAC_INVALID-------\n");
+    return UNENCRYPTED_MALWARE_WITH_HMAC_INVALID;
+  }
+
+  // Should never reach execution here because one of the above statements should always be true.
+  return INTERNAL_SERVER_ERROR_5_00;
 }
 /*---------------------------------------------------------------------------*/
 /*- REST Engine API ---------------------------------------------------------*/
@@ -1293,49 +1344,99 @@ coap_set_header_auth_counter(void *packet, uint8_t value)
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_calculate_auth_hash(void *packet, char *sha256)
+coap_calculate_hmac(uint8_t *hmac, uint8_t *data, size_t data_len)
 {
-  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
-
-  uint16_t mid = uip_htons(coap_pkt->mid);
-  uint8_t counter = coap_pkt->auth_counter;
-  uint8_t * payload = coap_pkt->payload;
-  uint16_t payload_len = coap_pkt->payload_len;
   uint8_t psk[] = presharedkey;
+  uint8_t psk_len = sizeof(psk);
 
-  uint32_t hex_all_len = sizeof(mid) + sizeof(counter) + payload_len + sizeof(psk);
-  char hex_all[hex_all_len];
-  memcpy(hex_all, &mid, sizeof(mid));
-  memcpy(hex_all + sizeof(mid), &counter, sizeof(counter));
-  memcpy(hex_all + sizeof(mid) + sizeof(counter), payload, payload_len);
-  memcpy(hex_all + sizeof(mid) + sizeof(counter) + payload_len, psk, sizeof(psk));
-
-  PRINTF("input data for hash: ");
-  for (uint8_t i = 0; i < hex_all_len; ++i){
-    PRINTF("%02x ", hex_all[i]);
+  PRINTF("Input data for HMAC: ");
+  for (uint8_t i = 0; i < data_len; ++i){
+    PRINTF("%02x ", data[i]);
   }
-  PRINTF("\b, ");
+  PRINTF("\b\n");
 
-  static sha256_state_t state;
-  static uint8_t error_code = CRYPTO_SUCCESS;
+  // Enable crypto processor
   if (!CRYPTO_IS_ENABLED())
     crypto_init();
-  error_code &= sha256_init(&state);
-  if (!CRYPTO_SUCCESS)
-    error_code &= sha256_process(&state, hex_all, hex_all_len);
-  if (!CRYPTO_SUCCESS)
-    error_code &= sha256_done(&state, (void *) sha256);
+  static uint8_t error_code = CRYPTO_SUCCESS;
+  static sha256_state_t context;
+
+  /*
+   * HMAC implementation according to RFC 2104
+   */
+  uint8_t k_ipad[65];    // inner padding - key XORd with ipad
+  uint8_t k_opad[65];    // outer padding - key XORd with opad
+  uint8_t tk[32];
+
+  // if psk is longer than 64 bytes reset it to psk=SHA256(psk)
+  if (psk_len > 64) {
+    static sha256_state_t tctx;
+
+    error_code |= sha256_init(&tctx);
+    error_code |= sha256_process(&tctx, psk, psk_len);
+    error_code |= sha256_done(&tctx, tk);
+
+    memmove(psk, tk, sizeof(tk));
+    psk_len = 32;
+  }
+
+  /*
+   * the HMAC_SHA256 transform looks like:
+   *
+   * SHA256(K XOR opad, SHA256(K XOR ipad, text))
+   *
+   * where K is an n byte psk
+   * ipad is the byte 0x36 repeated 64 times
+   * opad is the byte 0x5c repeated 64 times
+   * and text is the data being protected
+   */
+
+  // start out by storing key in pads
+  bzero(k_ipad, sizeof k_ipad);
+  bzero(k_opad, sizeof k_opad);
+  bcopy(psk, k_ipad, psk_len);
+  bcopy(psk, k_opad, psk_len);
+
+  // XOR psk with ipad and opad values
+  for (uint8_t i = 0; i < 64; ++i) {
+    k_ipad[i] ^= 0x36;
+    k_opad[i] ^= 0x5c;
+  }
+
+  // perform inner SHA256
+  error_code |= sha256_init(&context);                          // init context for 1st pass
+  error_code |= sha256_process(&context, k_ipad, 64);           // start with inner pad
+  error_code |= sha256_process(&context, data, (uint32_t) data_len);       // then text of datagram
+  error_code |= sha256_done(&context, hmac);                    // finish up 1st pass
+
+  // perform outer SHA256
+  error_code |= sha256_init(&context);                          // init context for 2nd pass
+  error_code |= sha256_process(&context, k_opad, 64);           // start with outer pad
+  error_code |= sha256_process(&context, hmac, 32);             // then results of 1st hash
+  error_code |= sha256_done(&context, hmac);                    // finish up 2nd pass
+
+  if (error_code != CRYPTO_SUCCESS) {
+    PRINTF("HMAC calculation failed!");
+    return 0;
+  }
+
+  PRINTF("Calculated HMAC: ");
+  for (uint8_t i = 0; i < 32; ++i){
+    PRINTF("%02x ", hmac[i]);
+  }
+  PRINTF("\b\n");
+
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_set_header_auth_hash(void *packet, const char *sha256, size_t hash_length) {
+coap_set_header_hmac(void *packet, const char *hmac, size_t hmac_length) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
-  coap_pkt->auth_hash = sha256;
-  coap_pkt->auth_hash_len = hash_length;
+  coap_pkt->hmac = hmac;
+  coap_pkt->hmac_len = hmac_length;
 
   // Don't set option in map because this would exceed the FSRAM size
-  // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
+  // SET_OPTION(coap_pkt, COAP_OPTION_HMAC);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
@@ -1425,23 +1526,46 @@ coap_set_header_encr_alg(void *packet, uint8_t value) {
   coap_pkt->encr_alg = value;
 
   // Don't set option in map because this would exceed the FSRAM size
-  // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_HASH);
+  // SET_OPTION(coap_pkt, COAP_OPTION_HMAC);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
-enable_integrity_check(void *packet, uint8_t retransmission_counter) {
+coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  if (coap_pkt->hmac_len == 0) {
+    // No HMAC found to update
+    return 1;
+  }
+
+  uint8_t* hmac_position = byte_after_hmac - 32; // HMAC has a fixed 32-byte length
+
+  size_t hex_all_len = packet_len - 32;
+  uint8_t hex_all[hex_all_len];
+  size_t packet_len_before_hmac_value = hmac_position - coap_pkt->buffer;
+  size_t packet_len_after_hmac_value = packet_len - (packet_len_before_hmac_value + 32);
+  memcpy(hex_all, coap_pkt->buffer, packet_len_before_hmac_value);
+  memcpy(hex_all + packet_len_before_hmac_value, byte_after_hmac, packet_len_after_hmac_value);
+
+  coap_calculate_hmac(hmac_position, hex_all, hex_all_len);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
   coap_set_header_experimental(packet, 0x42);
   coap_set_header_auth_counter(packet, retransmission_counter);
+
+  // Set a dummy value to reserve space for later update
   static uint8_t sha256[32];
-  coap_calculate_auth_hash(packet, (char *) sha256);
-  coap_set_header_auth_hash(packet, (const char *) sha256, sizeof(sha256));
+  coap_set_header_hmac(packet, (const char *) sha256, sizeof(sha256));
 
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
-encrypt_payload(void *packet) {
+coap_encrypt_payload(void *packet) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   uint8_t padding_len = coap_calculate_padding_len(coap_pkt);
@@ -1465,7 +1589,7 @@ encrypt_payload(void *packet) {
 }
 /*---------------------------------------------------------------------------*/
 int
-decrypt_payload(void *packet) {
+coap_decrypt_payload(void *packet) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   static uint8_t *decrypted_payload = NULL;
@@ -1499,31 +1623,35 @@ decrypt_payload(void *packet) {
 }
 /*---------------------------------------------------------------------------*/
 int
-enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter) {
-  enable_integrity_check(packet, retransmission_counter);
-  encrypt_payload(packet);
+coap_enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter) {
+  coap_enable_integrity_check(packet, retransmission_counter);
+  coap_encrypt_payload(packet);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 bool
-coap_valid_auth_hash(void *packet) {
-  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+coap_is_valid_hmac(uint8_t *original_packet, uint8_t *original_hmac_position, size_t packet_len) {
+  uint8_t packet[packet_len];
+  uint8_t *hmac_position = packet + (original_hmac_position - original_packet);
+  uint8_t *byte_after_hmac = hmac_position + 32; // HMAC has a fixed 32-byte length
 
-  static uint8_t sha256[32];
-  coap_calculate_auth_hash(coap_pkt, (char *) sha256);
-  PRINTF("\b\b\n");
+  memcpy(packet, original_packet, packet_len);
 
-  PRINTF("-HASH calc: ");
-  for (uint8_t i = 0; i < sizeof(sha256); ++i) {
-    PRINTF("%02x ",sha256[i]);
-  }
-  PRINTF("\b-\n");
+  size_t hex_all_len = packet_len - 32;
+  uint8_t hex_all[hex_all_len];
+  size_t packet_len_before_hmac_value = hmac_position - packet;
+  size_t packet_len_after_hmac_value = packet_len - (packet_len_before_hmac_value + 32);
 
-  uint8_t hash_comparison = (uint8_t) memcmp(sha256, coap_pkt->auth_hash, sizeof(sha256));
-  PRINTF("Hash comparison (0 indicates the hashs are equal): %i\n", hash_comparison);
+  memcpy(hex_all, packet, packet_len_before_hmac_value);
+  memcpy(hex_all + packet_len_before_hmac_value, byte_after_hmac, packet_len_after_hmac_value);
 
-  if (hash_comparison == 0) {
-    PRINTF("Hash is valid!\n");
+  coap_calculate_hmac(hmac_position, hex_all, hex_all_len);
+  uint8_t hmac_comparison = (uint8_t) memcmp(hmac_position, original_hmac_position, 32);
+
+  PRINTF("HMAC comparison (0 indicates the HMACs are equal): %i\n", hmac_comparison);
+
+  if (hmac_comparison == 0) {
+    PRINTF("HMAC is valid!\n");
     return true;
   } else {
     PRINTF("Hash is invalid!!! FILTER packet\n");
@@ -1532,20 +1660,20 @@ coap_valid_auth_hash(void *packet) {
 }
 /*---------------------------------------------------------------------------*/
 bool
-coap_malware_free(void *packet) {
+coap_is_malware_free(void *packet) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   if (coap_pkt->encr_alg != 0) {
-    PRINTF("encryption failed - Packet might be corrupted!!! FILTER packet\n");
+    PRINTF("Encryption failed - Packet might be corrupted!!! FILTER packet\n");
     return true;
   }
 
   PRINTF("Payload was unencrypted or encryption successful. SCANNING...\n");
   if (strstr((const char *)coap_pkt->payload, "EICAR") != NULL) {
-    PRINTF("VIRUS found!!! FILTER packet\n");
+    PRINTF("Malware found!!! FILTER packet\n");
     return false;
   } else {
-    PRINTF("Result: No virus found.\n");
+    PRINTF("Result: No malware found.\n");
     return true;
   }
 }

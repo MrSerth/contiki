@@ -116,7 +116,16 @@ typedef enum {
 
   /* Erbium hooks */
   MANUAL_RESPONSE,
-  PING_RESPONSE
+  PING_RESPONSE,
+
+  /* Potential Security issues */
+  UNENCRYPTED,
+  ENCRYPTED_MALWARE,
+  UNENCRYPTED_MALWARE,
+  ENCRYPTED_HMAC_INVALID,
+  UNENCRYPTED_HMAC_INVALID,
+  ENCRYPTED_MALWARE_WITH_HMAC_INVALID,
+  UNENCRYPTED_MALWARE_WITH_HMAC_INVALID
 } coap_status_t;
 
 /* CoAP header option numbers */
@@ -142,7 +151,7 @@ typedef enum {
   COAP_OPTION_SIZE1 = 60,       /* 0-4 B */
   COAP_OPTION_EXPERIMENTAL = 65000, /* 0-1 B */
   COAP_OPTION_AUTH_COUNTER = 65001, /* 1 B */
-  COAP_OPTION_AUTH_HASH = 65002, /* 32 B */
+  COAP_OPTION_HMAC = 65002, /* 32 B */
   COAP_OPTION_ENCR_ALG = 65003, /* 0-1 B */
 } coap_option_t;
 

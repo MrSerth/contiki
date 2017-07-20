@@ -870,8 +870,6 @@ tcpip_filter_packet(void)
   // indicates that the packet should not be filtered and processing should continue
   PRINTF("INSPECT Protocol: %u\n", UIP_IP_BUF->proto);
 
-  bool filter = false;
-
   if (UIP_IP_BUF->proto == UIP_PROTO_HBHO) {
     PRINTF("RPL header found, do nothing.\n");
   } else if (UIP_IP_BUF->proto == UIP_PROTO_ICMP6) {
@@ -895,17 +893,28 @@ tcpip_filter_packet(void)
     memcpy(coap_data, orignal_data, length);
 
     static coap_packet_t coap_pkt[1];
-    coap_parse_message(coap_pkt, coap_data, length); // function call has side effect on coap_data!
+    coap_status_t parse_result = coap_parse_message(coap_pkt, coap_data, length); // function call has side effect on coap_data!
 
     ANNOTATE("  Parsed: v %u, t %u, tkl %u, c %u, mid %u\n", coap_pkt->version,
            coap_pkt->type, coap_pkt->token_len, coap_pkt->code, coap_pkt->mid);
     ANNOTATE("  URL: %.*s\n", coap_pkt->uri_path_len, coap_pkt->uri_path);
-    ANNOTATE("  Payload: %.*s\n", coap_pkt->payload_len, coap_pkt->payload);
+    ANNOTATE("  Payload: %.*s\n\n", coap_pkt->payload_len, coap_pkt->payload);
 
-    filter |= !(coap_valid_auth_hash(coap_pkt));
-    filter |= !(coap_malware_free(coap_pkt));
+    switch (parse_result) {
+      case UNENCRYPTED:
+      case ENCRYPTED_MALWARE:
+      case UNENCRYPTED_MALWARE:
+      case ENCRYPTED_HMAC_INVALID:
+      case UNENCRYPTED_HMAC_INVALID:
+      case ENCRYPTED_MALWARE_WITH_HMAC_INVALID:
+      case UNENCRYPTED_MALWARE_WITH_HMAC_INVALID:
+        return true;
+      case NO_ERROR:
+      default:
+        return false;
+    }
   }
-  return filter;
+  return false;
 }
 #else
 bool
