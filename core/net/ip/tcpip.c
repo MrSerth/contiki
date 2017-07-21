@@ -53,8 +53,11 @@
 #endif
 
 #include <string.h>
-#include <apps/er-coap/er-coap.h>
+
+#ifdef BORDER_ROUTER_FILTER_COAP
+#include "apps/rest-engine/rest-engine.h"
 #include "apps/er-coap/er-coap.h"
+#endif
 
 #define DEBUG DEBUG_ANNOTATE
 #include "net/ip/uip-debug.h"
