@@ -28,9 +28,6 @@
 
 #include <string.h>
 
-#define DEBUG DEBUG_NONE
-#include "net/ip/uip-debug.h"
-
 #define NTP_EPOCH            (86400U * (365U * 70U + 17U))
 #define NTPD_PORT             123
 
@@ -45,6 +42,8 @@ struct ntpformat{
 PROCESS_NAME(ntpd_process);
 
 unsigned long getCurrTime(void);
+unsigned long getBootTime(void);
+unsigned long getLastNTPUpdateTime(void);
 
 //static void tcpip_handler(void);
 //static void timeout_handler(void);

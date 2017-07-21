@@ -32,6 +32,7 @@
 #define PROJECT_ROUTER_CONF_H_
 
 #define BORDER_ROUTER_FILTER_COAP 1
+#define NTP_TIME_SYNC 1
 
 #ifndef WITH_NON_STORING
 #define WITH_NON_STORING 0 /* Set this to run with non-storing mode */
@@ -139,6 +140,6 @@
 #undef UIP_CONF_TCP
 #define UIP_CONF_TCP 0
 #undef UIP_CONF_UDP
-#define UIP_CONF_UDP 0
+#define UIP_CONF_UDP 1
 
 #endif /* PROJECT_ROUTER_CONF_H_ */

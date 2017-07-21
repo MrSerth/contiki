@@ -8,6 +8,7 @@ include_directories(core)
 include_directories(core/net)
 include_directories(core/net/ip)
 include_directories(apps/er-coap)
+include_directories(apps/ntpd)
 include_directories(apps/rest-engine)
 include_directories(platform/openmote-cc2538)
 include_directories(cpu/cc2538)
@@ -15,6 +16,7 @@ include_directories(examples/jn516x/rpl/tools)
 
 add_definitions(-DNETSTACK_CONF_WITH_IPV6=1)
 add_definitions(-DBORDER_ROUTER_FILTER_COAP=1)
+add_definitions(-DNTP_TIME_SYNC=1)
 
 set(SOURCE_FILES
         apps/ntpd/ntpd.c

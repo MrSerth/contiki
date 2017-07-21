@@ -48,6 +48,10 @@
 #include "er-coap.h"
 #include "er-coap-transactions.h"
 
+#ifdef NTP_TIME_SYNC
+#include "ntpd.h"
+#endif
+
 #define DEBUG 1
 #if DEBUG
 #include <stdio.h>

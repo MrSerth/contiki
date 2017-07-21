@@ -39,6 +39,7 @@
 static unsigned short SEND_INTERVAL=2;
 static unsigned long StartTime=0;
 static unsigned long CurrTime=0;
+static unsigned long BootTime=0;
 
 static const char ntpmsg[] PROGMEM = {
   0x00000008U, 0x00000000U, 0x00000000U, 0x00000000U,
@@ -57,31 +58,45 @@ static const char ntpmsg[] PROGMEM = {
 
 static struct uip_udp_conn *ntp_conn;
 PROCESS(ntpd_process, "ntpd");
-AUTOSTART_PROCESSES(&ntpd_process);
 /*---------------------------------------------------------------------------*/
 unsigned long
 getCurrTime(void)
 {
   if(StartTime==0 && CurrTime==0)
     return 0;
-  PRINTF("clock_seconds: %lu, StartTime: %lu, CurrTime: %lu\n", clock_seconds(), StartTime, CurrTime);
   return (clock_seconds() - StartTime + CurrTime);
+}
+/*---------------------------------------------------------------------------*/
+unsigned long
+getBootTime(void)
+{
+  if(StartTime==0 && CurrTime==0)
+    return 0;
+  return BootTime;
+}
+/*---------------------------------------------------------------------------*/
+unsigned long
+getLastNTPUpdateTime(void)
+{
+  // NTP synchronizes at least every 1024 seconds (= 17 min 4 sec)
+  if(StartTime==0 && CurrTime==0)
+    return 0;
+  return CurrTime;
 }
 /*---------------------------------------------------------------------------*/
 static void
 tcpip_handler(void)
 {
-  PRINTF("NTP: tcpip_handler");
   if(uip_newdata() && (uip_datalen()==48)) {
     CurrTime = uip_ntohl(((struct ntpformat *)uip_appdata)->seconds) - NTP_EPOCH;
     StartTime = clock_seconds();
+    BootTime = CurrTime - StartTime;
   }
 }
 /*---------------------------------------------------------------------------*/
 static void
 timeout_handler(void)
 {
-  PRINTF("NTP: timeout_handler");
 #if CONTIKI_TARGET_AVR_RAVEN
   char buf[48];
   strlcpy_P(buf, ntpmsg, 48);
@@ -106,6 +121,7 @@ PROCESS_THREAD(ntpd_process, ev, data)
   PROCESS_BEGIN();
   PRINTF("ntpd process started\n");
 
+#ifndef BORDER_ROUTER_FILTER_COAP
   /* find the IP of router */
   etimer_set(&et, CLOCK_SECOND);
   while(1){
@@ -116,6 +132,7 @@ PROCESS_THREAD(ntpd_process, ev, data)
     etimer_set(&et, CLOCK_SECOND);
     PROCESS_YIELD_UNTIL(etimer_expired(&et));
   }
+#endif
 
   // Manually specify NTP server to contact
   set_connection_address(&ipaddr);

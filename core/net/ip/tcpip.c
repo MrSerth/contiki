@@ -55,8 +55,11 @@
 #include <string.h>
 
 #ifdef BORDER_ROUTER_FILTER_COAP
-#include "apps/rest-engine/rest-engine.h"
-#include "apps/er-coap/er-coap.h"
+#include "er-coap.h"
+#endif
+
+#ifdef NTP_TIME_SYNC
+#include "ntpd.h"
 #endif
 
 #define DEBUG DEBUG_ANNOTATE

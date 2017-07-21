@@ -109,7 +109,13 @@ extern resource_t res_max44009;
 #endif
 
 PROCESS(er_example_server, "Erbium Example Server");
+
+#ifdef NTP_TIME_SYNC
+#include "apps/ntpd/ntpd.h"
+AUTOSTART_PROCESSES(&er_example_server, &ntpd_process);
+#else
 AUTOSTART_PROCESSES(&er_example_server);
+#endif
 
 PROCESS_THREAD(er_example_server, ev, data)
 {
