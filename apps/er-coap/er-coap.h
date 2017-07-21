@@ -131,7 +131,7 @@ typedef struct {
   uint16_t payload_len;
   uint8_t *payload;
 
-  uint8_t experimental;
+  uint32_t timestamp;
   uint8_t auth_counter;
   size_t hmac_len;
   const char *hmac;
@@ -277,7 +277,7 @@ int coap_set_header_size1(void *packet, uint32_t size);
 int coap_get_payload(void *packet, const uint8_t **payload);
 int coap_set_payload(void *packet, const void *payload, size_t length);
 
-int coap_set_header_experimental(void *packet, uint8_t value);
+int coap_set_header_timestamp(void *packet, uint32_t value);
 int coap_set_header_auth_counter(void *packet, uint8_t value);
 int coap_calculate_hmac(uint8_t *hmac, uint8_t *data, size_t data_len);
 int coap_set_header_hmac(void *packet, const char *hmac, size_t hmac_length);

@@ -345,7 +345,7 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
   coap_pkt->buffer[2] = (uint8_t)((coap_pkt->mid) >> 8);
   coap_pkt->buffer[3] = (uint8_t)(coap_pkt->mid);
 
-  /* set experimental headers */
+  /* set security headers */
   coap_enable_integrity_check_and_encrypt_payload(coap_pkt, retransmission_counter);
 
   /* empty packet, dont need to do more stuff */
@@ -404,7 +404,7 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
                                "Proxy-Scheme");
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_SIZE1, size1, "Size1");
 
-  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_EXPERIMENTAL, experimental, "Experimental");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_TIMESTAMP, timestamp, "Timestamp");
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, auth_counter, "Integrity Counter");
   COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_HMAC, hmac, '\0', "HMAC");
   uint8_t *byte_after_hmac = option;
@@ -724,9 +724,9 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       coap_pkt->size1 = coap_parse_int_option(current_option, option_length);
       PRINTF("Size1 [%lu]\n", (unsigned long)coap_pkt->size1);
       break;
-    case COAP_OPTION_EXPERIMENTAL:
-      coap_pkt->experimental = (uint8_t) coap_parse_int_option(current_option, option_length);
-      PRINTF("Experimental [%u]\n", (uint8_t)coap_pkt->experimental);
+    case COAP_OPTION_TIMESTAMP:
+      coap_pkt->timestamp = (uint32_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Timestamp [%lu]\n", (uint32_t)coap_pkt->timestamp);
       break;
     case COAP_OPTION_AUTH_COUNTER:
       coap_pkt->auth_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
@@ -1326,13 +1326,13 @@ coap_set_payload(void *packet, const void *payload, size_t length)
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_set_header_experimental(void *packet, uint8_t value)
+coap_set_header_timestamp(void *packet, uint32_t value)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
-  coap_pkt->experimental = value;
+  coap_pkt->timestamp = value;
   // Don't set option in map because this would exceed the FSRAM size
-  // SET_OPTION(coap_pkt, COAP_OPTION_EXPERIMENTAL);
+  // SET_OPTION(coap_pkt, COAP_OPTION_TIMESTAMP);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
@@ -1558,6 +1558,7 @@ coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
 /*---------------------------------------------------------------------------*/
 int
 coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
+  coap_set_header_timestamp(packet, (uint32_t) getCurrTime());
   coap_set_header_auth_counter(packet, retransmission_counter);
 
   // Set a dummy value to reserve space for later update
