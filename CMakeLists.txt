@@ -17,6 +17,11 @@ add_definitions(-DNETSTACK_CONF_WITH_IPV6=1)
 add_definitions(-DBORDER_ROUTER_FILTER_COAP=1)
 
 set(SOURCE_FILES
+        apps/ntpd/ntpd.c
+        apps/ntpd/ntpd.h
+        examples/ntpd/ntp-example.c
+        examples/ntpd/project-conf.h
+
         apps/about/about-dsc.c
         apps/about/about-dsc.h
         apps/about/about.c
