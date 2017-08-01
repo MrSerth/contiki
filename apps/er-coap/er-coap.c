@@ -1559,16 +1559,18 @@ coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
     return 1;
   }
 
-  uint8_t* hmac_position = byte_after_hmac - 32; // HMAC has a fixed 32-byte length
+  uint8_t* hmac_position = byte_after_hmac - COAP_HEADER_HMAC_LENGTH;
 
-  size_t hex_all_len = packet_len - 32;
+  size_t hex_all_len = packet_len - COAP_HEADER_HMAC_LENGTH;
   uint8_t hex_all[hex_all_len];
   size_t packet_len_before_hmac_value = hmac_position - coap_pkt->buffer;
-  size_t packet_len_after_hmac_value = packet_len - (packet_len_before_hmac_value + 32);
+  size_t packet_len_after_hmac_value = packet_len - (packet_len_before_hmac_value + COAP_HEADER_HMAC_LENGTH);
   memcpy(hex_all, coap_pkt->buffer, packet_len_before_hmac_value);
   memcpy(hex_all + packet_len_before_hmac_value, byte_after_hmac, packet_len_after_hmac_value);
 
-  coap_calculate_hmac(hmac_position, hex_all, hex_all_len);
+  uint8_t full_hmac[32];
+  coap_calculate_hmac(full_hmac, hex_all, hex_all_len);
+  memcpy(hmac_position, full_hmac, COAP_HEADER_HMAC_LENGTH);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
@@ -1579,8 +1581,8 @@ coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
   coap_set_header_retransmission_counter(packet, retransmission_counter);
 
   // Set a dummy value to reserve space for later update
-  static uint8_t sha256[32];
-  coap_set_header_hmac(packet, (const char *) sha256, sizeof(sha256));
+  static uint8_t hmac[COAP_HEADER_HMAC_LENGTH];
+  coap_set_header_hmac(packet, (const char *) hmac, sizeof(hmac));
 
   return 1;
 }
@@ -1655,20 +1657,20 @@ bool
 coap_is_valid_hmac(uint8_t *original_packet, uint8_t *original_hmac_position, size_t packet_len) {
   uint8_t packet[packet_len];
   uint8_t *hmac_position = packet + (original_hmac_position - original_packet);
-  uint8_t *byte_after_hmac = hmac_position + 32; // HMAC has a fixed 32-byte length
+  uint8_t *byte_after_hmac = hmac_position + COAP_HEADER_HMAC_LENGTH;
 
   memcpy(packet, original_packet, packet_len);
 
-  size_t hex_all_len = packet_len - 32;
+  size_t hex_all_len = packet_len - COAP_HEADER_HMAC_LENGTH;
   uint8_t hex_all[hex_all_len];
   size_t packet_len_before_hmac_value = hmac_position - packet;
-  size_t packet_len_after_hmac_value = packet_len - (packet_len_before_hmac_value + 32);
+  size_t packet_len_after_hmac_value = packet_len - (packet_len_before_hmac_value + COAP_HEADER_HMAC_LENGTH);
 
   memcpy(hex_all, packet, packet_len_before_hmac_value);
   memcpy(hex_all + packet_len_before_hmac_value, byte_after_hmac, packet_len_after_hmac_value);
 
   coap_calculate_hmac(hmac_position, hex_all, hex_all_len);
-  uint8_t hmac_comparison = (uint8_t) memcmp(hmac_position, original_hmac_position, 32);
+  uint8_t hmac_comparison = (uint8_t) memcmp(hmac_position, original_hmac_position, COAP_HEADER_HMAC_LENGTH);
 
   PRINTF("HMAC comparison (0 indicates the HMACs are equal): %i\n", hmac_comparison);
 
