@@ -44,6 +44,7 @@
 #include "contiki-net.h"
 #include "dev/sha256.h"
 #include "lib/aes-128.h"
+#include <cfs/cfs.h>
 
 #include "er-coap.h"
 #include "er-coap-transactions.h"
@@ -290,6 +291,13 @@ coap_init_connection(uint16_t port)
 
   /* initialize transaction ID */
   current_mid = random_rand();
+
+  /* increment boot counter */
+  uint16_t boot_counter = coap_read_persistent_boot_counter(true);
+  PRINTF("\b\b\n");
+  boot_counter++;
+  coap_write_persistent_boot_counter(boot_counter);
+  PRINTF("\b\b\n");
 }
 /*---------------------------------------------------------------------------*/
 uint16_t
@@ -1579,7 +1587,7 @@ int
 coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
 #if COAP_ENABLE_HMAC_SUPPORT == 1
   coap_set_header_client_identity(packet, COAP_DEFAULT_CLIENT_IDENTITY);
-  coap_set_header_boot_counter(packet, 0x0001);
+  coap_set_header_boot_counter(packet, coap_read_persistent_boot_counter(false));
   coap_set_header_retransmission_counter(packet, retransmission_counter);
 
   // Set a dummy value to reserve space for later update
@@ -1721,5 +1729,55 @@ coap_is_malware_free(void *packet) {
 #else
   return true;
 #endif
+}
+/*---------------------------------------------------------------------------*/
+uint16_t
+coap_read_persistent_boot_counter(bool disable_caching) {
+  static uint16_t boot_counter = 0x0000;
+  static uint16_t cache_read_counter = 0;
+
+  if (disable_caching || cache_read_counter == 0) {
+    int filedescriptor;
+    uint8_t buf[sizeof(uint16_t)];
+
+    filedescriptor = cfs_open(COAP_BOOT_COUNTER_FILENAME, CFS_READ);
+    if (filedescriptor >= 0) {
+      cfs_seek(filedescriptor, 0, CFS_SEEK_SET);
+      cfs_read(filedescriptor, buf, sizeof(buf));
+      cfs_close(filedescriptor);
+      memcpy(&boot_counter, buf, sizeof(uint16_t));
+    }
+
+    PRINTF("Boot counter read from file system: 0x%04x, ", boot_counter);
+    cache_read_counter = 0;
+  } else if (cache_read_counter == COAP_MAX_BOOT_COUNTER_CACHE_READS) {
+    boot_counter++;
+    coap_write_persistent_boot_counter(boot_counter);
+    PRINTF("\b\b (auto-increment), ");
+    cache_read_counter = 0;
+  }
+
+  if (!disable_caching) {
+    cache_read_counter++;
+  }
+  return boot_counter;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_write_persistent_boot_counter(uint16_t value) {
+  PRINTF("Boot counter to write to file system: 0x%04x, ", value);
+
+  int filedescriptor;
+  uint8_t buf[sizeof(uint16_t)];
+  memcpy(buf, &value, sizeof(uint16_t));
+
+  cfs_remove(COAP_BOOT_COUNTER_FILENAME);
+  filedescriptor = cfs_open(COAP_BOOT_COUNTER_FILENAME, CFS_WRITE);
+  if(filedescriptor >= 0) {
+    cfs_seek(filedescriptor, 0, CFS_SEEK_SET);
+    cfs_write(filedescriptor, buf, sizeof(buf));
+    cfs_close(filedescriptor);
+  }
+  return 1;
 }
 /*---------------------------------------------------------------------------*/

@@ -66,6 +66,8 @@
 
 #define COAP_HEADER_HMAC_LENGTH              8  /* The maximum number of bytes for the HMAC, value range from 0 to 32 */
 #define COAP_DEFAULT_CLIENT_IDENTITY         1  /* The client identity to use, a suitable PSK must exist */
+#define COAP_BOOT_COUNTER_FILENAME           "bootcounter.hex"
+#define COAP_MAX_BOOT_COUNTER_CACHE_READS    0xFFFF
 
 /* CoAP message types */
 typedef enum {

@@ -295,5 +295,7 @@ int coap_decrypt_payload(void *packet);
 int coap_enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter);
 bool coap_is_valid_hmac(uint8_t *packet, uint8_t *byte_after_hmac, size_t packet_len);
 bool coap_is_malware_free(void *packet);
+uint16_t coap_read_persistent_boot_counter(bool disable_caching);
+int coap_write_persistent_boot_counter(uint16_t value);
 
 #endif /* ER_COAP_H_ */
