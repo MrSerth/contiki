@@ -95,6 +95,7 @@ set(SOURCE_FILES
         apps/er-coap/er-coap-observe-client.h
         apps/er-coap/er-coap-observe.c
         apps/er-coap/er-coap-observe.h
+        apps/er-coap/er-coap-psk.h
         apps/er-coap/er-coap-res-well-known-core.c
         apps/er-coap/er-coap-separate.c
         apps/er-coap/er-coap-separate.h

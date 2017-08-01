@@ -65,11 +65,7 @@
 #define COAP_ENABLE_PAYLOAD_INSPECTION       1
 
 #define COAP_HEADER_HMAC_LENGTH              8  /* The maximum number of bytes for the HMAC, value range from 0 to 32 */
-
-#define presharedkey { 0x00 , 0x01 , 0x02 , 0x03 , \
-                       0x04 , 0x05 , 0x06 , 0x07 , \
-                       0x08 , 0x09 , 0x0A , 0x0B , \
-                       0x0C , 0x0D , 0x0E , 0x0F }
+#define COAP_DEFAULT_CLIENT_IDENTITY         1  /* The client identity to use, a suitable PSK must exist */
 
 /* CoAP message types */
 typedef enum {

@@ -48,6 +48,8 @@
 #include "er-coap.h"
 #include "er-coap-transactions.h"
 
+#include "er-coap-psk.h"
+
 #define DEBUG 1
 #if DEBUG
 #include <stdio.h>
@@ -1361,8 +1363,8 @@ coap_set_header_retransmission_counter(void *packet, uint8_t value)
 int
 coap_calculate_hmac(uint8_t *hmac, uint8_t *data, size_t data_len)
 {
-  uint8_t psk[] = presharedkey;
-  uint8_t psk_len = sizeof(psk);
+  uint8_t *psk = presharedkeys[COAP_DEFAULT_CLIENT_IDENTITY];
+  uint8_t psk_len = presharedkeys_len[COAP_DEFAULT_CLIENT_IDENTITY];
 
   PRINTF("Input data for HMAC: ");
   for (uint8_t i = 0; i < data_len; ++i){
@@ -1466,7 +1468,7 @@ coap_calculate_encrypted_payload(void *packet, char *encrypted_payload,
                                  uint16_t encrypted_payload_len, uint8_t padding_len) {
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
-  uint8_t psk[] = presharedkey;
+  uint8_t *psk = presharedkeys[COAP_DEFAULT_CLIENT_IDENTITY];
   uint8_t cipher_block[encrypted_payload_len];
 
   memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
@@ -1502,7 +1504,7 @@ coap_calculate_decrypted_payload(void *packet, char *decrypted_payload) {
     return -1;
   }
 
-  uint8_t psk[] = presharedkey;
+  uint8_t *psk = presharedkeys[COAP_DEFAULT_CLIENT_IDENTITY];
   uint8_t cipher_block[coap_pkt->payload_len];
   memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
 
