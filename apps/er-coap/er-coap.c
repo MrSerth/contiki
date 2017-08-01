@@ -1481,7 +1481,9 @@ coap_calculate_encrypted_payload(void *packet, char *encrypted_payload,
 
   AES_128_GET_LOCK();
   AES_128.set_key(psk);
-  AES_128.encrypt(cipher_block);
+  for (uint16_t i = 0; i < encrypted_payload_len; i += 16) {
+    AES_128.encrypt(&cipher_block[i]);
+  }
   AES_128_RELEASE_LOCK();
 
   memcpy(encrypted_payload, cipher_block, encrypted_payload_len);
@@ -1513,7 +1515,9 @@ coap_calculate_decrypted_payload(void *packet, char *decrypted_payload) {
 
   AES_128_GET_LOCK();
   AES_128.set_key(psk);
-  AES_128.decrypt(cipher_block);
+  for (uint16_t i = 0; i < coap_pkt->payload_len; i += 16) {
+    AES_128.decrypt(&cipher_block[i]);
+  }
   AES_128_RELEASE_LOCK();
 
   uint8_t padding_len = cipher_block[sizeof(cipher_block) - 1];
@@ -1571,7 +1575,7 @@ coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
 int
 coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
   coap_set_header_client_identity(packet, 0x01);
-  coap_set_header_boot_counter(packet, 0x00'01);
+  coap_set_header_boot_counter(packet, 0x0001);
   coap_set_header_retransmission_counter(packet, retransmission_counter);
 
   // Set a dummy value to reserve space for later update
@@ -1599,6 +1603,7 @@ coap_encrypt_payload(void *packet) {
 
   coap_calculate_encrypted_payload(packet, (char *) encrypted_payload, encrypted_payload_len, padding_len);
   coap_set_header_encr_alg(packet, 0x01);
+  // TODO: coap_pkt->block2_size needs to be adjusted!
   coap_set_payload(packet, encrypted_payload, encrypted_payload_len);
 
   // encrypted_payload is not freed by design because otherwise the pointer to the payload would become invalid
