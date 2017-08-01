@@ -1578,7 +1578,7 @@ coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
 int
 coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
 #if COAP_ENABLE_HMAC_SUPPORT == 1
-  coap_set_header_client_identity(packet, 0x01);
+  coap_set_header_client_identity(packet, COAP_DEFAULT_CLIENT_IDENTITY);
   coap_set_header_boot_counter(packet, 0x0001);
   coap_set_header_retransmission_counter(packet, retransmission_counter);
 
@@ -1608,7 +1608,7 @@ coap_encrypt_payload(void *packet) {
   }
 
   coap_calculate_encrypted_payload(packet, (char *) encrypted_payload, encrypted_payload_len, padding_len);
-  coap_set_header_client_identity(packet, 0x01);
+  coap_set_header_client_identity(packet, COAP_DEFAULT_CLIENT_IDENTITY);
   coap_set_header_encr_alg(packet, 0x01);
   // TODO: coap_pkt->block2_size needs to be adjusted!
   coap_set_payload(packet, encrypted_payload, encrypted_payload_len);
