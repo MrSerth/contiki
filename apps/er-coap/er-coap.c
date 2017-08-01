@@ -485,6 +485,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
 
   /* initialize packet */
   memset(coap_pkt, 0, sizeof(coap_packet_t));
+  PRINTF("-Parsing at: %p-------\n", (void*)&coap_pkt);
 
   /* pointer to packet bytes */
   coap_pkt->buffer = data;
@@ -768,9 +769,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
   bool malware_free = false;
   bool packet_was_encrypted = false;
 
-  if (hmac_position != NULL) { // HMAC option found in packet
-    hmac_valid = coap_is_valid_hmac(data, hmac_position, data_len);
-  }
+  hmac_valid = coap_is_valid_hmac(data, hmac_position, data_len);
 
   packet_was_encrypted = (coap_pkt->encr_alg == 0x01);
 
@@ -1576,6 +1575,7 @@ coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
 /*---------------------------------------------------------------------------*/
 int
 coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
+#if COAP_ENABLE_HMAC_SUPPORT == 1
   coap_set_header_client_identity(packet, 0x01);
   coap_set_header_boot_counter(packet, 0x0001);
   coap_set_header_retransmission_counter(packet, retransmission_counter);
@@ -1583,12 +1583,14 @@ coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
   // Set a dummy value to reserve space for later update
   static uint8_t hmac[COAP_HEADER_HMAC_LENGTH];
   coap_set_header_hmac(packet, (const char *) hmac, sizeof(hmac));
+#endif
 
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
 coap_encrypt_payload(void *packet) {
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   uint8_t padding_len = coap_calculate_padding_len(coap_pkt);
@@ -1604,16 +1606,20 @@ coap_encrypt_payload(void *packet) {
   }
 
   coap_calculate_encrypted_payload(packet, (char *) encrypted_payload, encrypted_payload_len, padding_len);
+  coap_set_header_client_identity(packet, 0x01);
   coap_set_header_encr_alg(packet, 0x01);
   // TODO: coap_pkt->block2_size needs to be adjusted!
   coap_set_payload(packet, encrypted_payload, encrypted_payload_len);
 
   // encrypted_payload is not freed by design because otherwise the pointer to the payload would become invalid
+#endif
+
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
 coap_decrypt_payload(void *packet) {
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   static uint8_t *decrypted_payload = NULL;
@@ -1642,6 +1648,7 @@ coap_decrypt_payload(void *packet) {
 
   coap_set_header_encr_alg(packet, 0x00);
   coap_set_payload(packet, decrypted_payload, (uint16_t) decrypted_payload_len);
+#endif
 
   return 1;
 }
@@ -1655,6 +1662,11 @@ coap_enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmis
 /*---------------------------------------------------------------------------*/
 bool
 coap_is_valid_hmac(uint8_t *original_packet, uint8_t *original_hmac_position, size_t packet_len) {
+#if COAP_ENABLE_HMAC_SUPPORT == 1
+  if (original_hmac_position == NULL) {
+    return false;
+  }
+
   uint8_t packet[packet_len];
   uint8_t *hmac_position = packet + (original_hmac_position - original_packet);
   uint8_t *byte_after_hmac = hmac_position + COAP_HEADER_HMAC_LENGTH;
@@ -1681,15 +1693,19 @@ coap_is_valid_hmac(uint8_t *original_packet, uint8_t *original_hmac_position, si
     PRINTF("Hash is invalid!!! FILTER packet\n");
     return false;
   }
+#else
+  return true;
+#endif
 }
 /*---------------------------------------------------------------------------*/
 bool
 coap_is_malware_free(void *packet) {
+#if COAP_ENABLE_PAYLOAD_INSPECTION == 1
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
   if (coap_pkt->encr_alg != 0) {
-    PRINTF("Encryption failed - Packet might be corrupted!!! FILTER packet\n");
-    return true;
+    PRINTF("Packet is encrypted, no payload inspection possible!!! FILTER packet\n");
+    return false;
   }
 
   PRINTF("Payload was unencrypted or encryption successful. SCANNING...\n");
@@ -1700,5 +1716,8 @@ coap_is_malware_free(void *packet) {
     PRINTF("Result: No malware found.\n");
     return true;
   }
+#else
+  return true;
+#endif
 }
 /*---------------------------------------------------------------------------*/

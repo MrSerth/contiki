@@ -162,7 +162,7 @@ typedef struct {
     current_number = number; \
   }
 #define COAP_SERIALIZE_STRING_OPTION(number, field, splitter, text) \
-  if((number) >= COAP_OPTION_EXPERIMENTAL || IS_OPTION(coap_pkt, number)) { \
+  if(((number) >= COAP_OPTION_EXPERIMENTAL && coap_pkt->field##_len > 0)|| (!((number) >= COAP_OPTION_EXPERIMENTAL) && IS_OPTION(coap_pkt, number))) { \
     if((number) != COAP_OPTION_HMAC) { \
       PRINTF(text " [%.*s]\n", (int)coap_pkt->field##_len, coap_pkt->field); \
     } else { \

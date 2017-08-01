@@ -60,6 +60,10 @@
 #define COAP_HEADER_OPTION_DELTA_MASK        0xF0
 #define COAP_HEADER_OPTION_SHORT_LENGTH_MASK 0x0F
 
+#define COAP_ENABLE_HMAC_SUPPORT             1
+#define COAP_ENABLE_ENCRYPTION_SUPPORT       1
+#define COAP_ENABLE_PAYLOAD_INSPECTION       1
+
 #define COAP_HEADER_HMAC_LENGTH              8  /* The maximum number of bytes for the HMAC, value range from 0 to 32 */
 
 #define presharedkey { 0x00 , 0x01 , 0x02 , 0x03 , \
