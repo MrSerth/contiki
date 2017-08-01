@@ -9,9 +9,6 @@ MODULES += core/net/llsec/adaptivesec
 APPS += er-coap
 APPS += rest-engine
 
-# Use NTP
-APPS += ntpd
-
 #linker optimizations
 SMALL=1
 

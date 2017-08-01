@@ -58,10 +58,6 @@
 #include "er-coap.h"
 #endif
 
-#ifdef NTP_TIME_SYNC
-#include "ntpd.h"
-#endif
-
 #define DEBUG DEBUG_ANNOTATE
 #include "net/ip/uip-debug.h"
 

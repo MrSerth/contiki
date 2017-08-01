@@ -131,8 +131,9 @@ typedef struct {
   uint16_t payload_len;
   uint8_t *payload;
 
-  uint32_t timestamp;
-  uint8_t auth_counter;
+  uint8_t client_identity;
+  uint16_t boot_counter;
+  uint8_t retransmission_counter;
   size_t hmac_len;
   const char *hmac;
   uint8_t encr_alg;
@@ -140,7 +141,7 @@ typedef struct {
 
 /* option format serialization */
 #define COAP_SERIALIZE_INT_OPTION(number, field, text) \
-  if((number >= COAP_OPTION_EXPERIMENTAL && coap_pkt->field != 0x00) || (!(number >= COAP_OPTION_EXPERIMENTAL) && IS_OPTION(coap_pkt, number))) { \
+  if(((number) >= COAP_OPTION_EXPERIMENTAL && coap_pkt->field != 0x00) || (!((number) >= COAP_OPTION_EXPERIMENTAL) && IS_OPTION(coap_pkt, number))) { \
     PRINTF(text " [%u]\n", (unsigned int)coap_pkt->field); \
     option += coap_serialize_int_option(number, current_number, option, coap_pkt->field); \
     current_number = number; \
@@ -161,8 +162,8 @@ typedef struct {
     current_number = number; \
   }
 #define COAP_SERIALIZE_STRING_OPTION(number, field, splitter, text) \
-  if(number >= COAP_OPTION_EXPERIMENTAL || IS_OPTION(coap_pkt, number)) { \
-    if(number != COAP_OPTION_HMAC) { \
+  if((number) >= COAP_OPTION_EXPERIMENTAL || IS_OPTION(coap_pkt, number)) { \
+    if((number) != COAP_OPTION_HMAC) { \
       PRINTF(text " [%.*s]\n", (int)coap_pkt->field##_len, coap_pkt->field); \
     } else { \
       PRINTF(text " ["); \
@@ -277,8 +278,9 @@ int coap_set_header_size1(void *packet, uint32_t size);
 int coap_get_payload(void *packet, const uint8_t **payload);
 int coap_set_payload(void *packet, const void *payload, size_t length);
 
-int coap_set_header_timestamp(void *packet, uint32_t value);
-int coap_set_header_auth_counter(void *packet, uint8_t value);
+int coap_set_header_client_identity(void *packet, uint8_t value);
+int coap_set_header_boot_counter(void *packet, uint16_t value);
+int coap_set_header_retransmission_counter(void *packet, uint8_t value);
 int coap_calculate_hmac(uint8_t *hmac, uint8_t *data, size_t data_len);
 int coap_set_header_hmac(void *packet, const char *hmac, size_t hmac_length);
 uint8_t coap_calculate_padding_len(void *packet);

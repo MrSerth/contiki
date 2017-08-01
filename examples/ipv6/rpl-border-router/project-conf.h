@@ -32,7 +32,6 @@
 #define PROJECT_ROUTER_CONF_H_
 
 #define BORDER_ROUTER_FILTER_COAP 1
-#define NTP_TIME_SYNC 1
 
 #ifndef WITH_NON_STORING
 #define WITH_NON_STORING 0 /* Set this to run with non-storing mode */

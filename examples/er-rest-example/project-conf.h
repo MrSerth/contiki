@@ -39,8 +39,6 @@
 #ifndef __PROJECT_ERBIUM_CONF_H__
 #define __PROJECT_ERBIUM_CONF_H__
 
-#define NTP_TIME_SYNC 1
-
 /* Custom channel and PAN ID configuration for your project. */
 /*
    #undef RF_CHANNEL

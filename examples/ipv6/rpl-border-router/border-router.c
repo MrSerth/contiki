@@ -64,12 +64,7 @@ PROCESS(border_router_process, "Border router process");
 
 #if WEBSERVER==0
 /* No webserver */
-#ifdef NTP_TIME_SYNC
-#include "apps/ntpd/ntpd.h"
-AUTOSTART_PROCESSES(&border_router_process, &ntpd_process);
-#else
 AUTOSTART_PROCESSES(&border_router_process);
-#endif
 
 #elif WEBSERVER>1
 /* Use an external webserver application */

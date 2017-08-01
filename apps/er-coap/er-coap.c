@@ -48,10 +48,6 @@
 #include "er-coap.h"
 #include "er-coap-transactions.h"
 
-#ifdef NTP_TIME_SYNC
-#include "ntpd.h"
-#endif
-
 #define DEBUG 1
 #if DEBUG
 #include <stdio.h>
@@ -404,8 +400,9 @@ coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
                                "Proxy-Scheme");
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_SIZE1, size1, "Size1");
 
-  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_TIMESTAMP, timestamp, "Timestamp");
-  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_AUTH_COUNTER, auth_counter, "Integrity Counter");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_CLIENT_IDENTITY, client_identity, "Client Identity");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_BOOT_COUNTER, boot_counter, "Boot Counter");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_RETRANSMISSION_COUNTER, retransmission_counter, "Retransmission Counter");
   COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_HMAC, hmac, '\0', "HMAC");
   uint8_t *byte_after_hmac = option;
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_ENCR_ALG, encr_alg, "Encryption Algorithm");
@@ -724,13 +721,17 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       coap_pkt->size1 = coap_parse_int_option(current_option, option_length);
       PRINTF("Size1 [%lu]\n", (unsigned long)coap_pkt->size1);
       break;
-    case COAP_OPTION_TIMESTAMP:
-      coap_pkt->timestamp = (uint32_t) coap_parse_int_option(current_option, option_length);
-      PRINTF("Timestamp [%lu]\n", (uint32_t)coap_pkt->timestamp);
+    case COAP_OPTION_CLIENT_IDENTITY:
+      coap_pkt->client_identity = (uint8_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Client Identity [%u]\n", (uint8_t)coap_pkt->client_identity);
       break;
-    case COAP_OPTION_AUTH_COUNTER:
-      coap_pkt->auth_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
-      PRINTF("Integrity Counter [%u]\n", (uint8_t)coap_pkt->auth_counter);
+    case COAP_OPTION_BOOT_COUNTER:
+      coap_pkt->boot_counter = (uint16_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Boot Counter [%u]\n", (uint16_t)coap_pkt->boot_counter);
+      break;
+    case COAP_OPTION_RETRANSMISSION_COUNTER:
+      coap_pkt->retransmission_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Retransmission Counter [%u]\n", (uint8_t)coap_pkt->retransmission_counter);
       break;
     case COAP_OPTION_HMAC:
       /* coap_merge_multi_option() operates in-place on the IPBUF, but final packet field should be const string -> cast to string */
@@ -1326,24 +1327,35 @@ coap_set_payload(void *packet, const void *payload, size_t length)
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_set_header_timestamp(void *packet, uint32_t value)
+coap_set_header_client_identity(void *packet, uint8_t value)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
-  coap_pkt->timestamp = value;
+  coap_pkt->client_identity = value;
   // Don't set option in map because this would exceed the FSRAM size
-  // SET_OPTION(coap_pkt, COAP_OPTION_TIMESTAMP);
+  // SET_OPTION(coap_pkt, COAP_OPTION_CLIENT_IDENTIY);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
 int
-coap_set_header_auth_counter(void *packet, uint8_t value)
+coap_set_header_boot_counter(void *packet, uint16_t value)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
-  coap_pkt->auth_counter = (uint8_t) (value + 1);
+  coap_pkt->boot_counter = value;
   // Don't set option in map because this would exceed the FSRAM size
-  // SET_OPTION(coap_pkt, COAP_OPTION_AUTH_COUNTER);
+  // SET_OPTION(coap_pkt, COAP_OPTION_BOOT_COUNTER);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_retransmission_counter(void *packet, uint8_t value)
+{
+  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+  coap_pkt->retransmission_counter = (uint8_t) (value + 1);
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_RETRANSMISSION_COUNTER);
   return 1;
 }
 /*---------------------------------------------------------------------------*/
@@ -1558,8 +1570,9 @@ coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
 /*---------------------------------------------------------------------------*/
 int
 coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
-  coap_set_header_timestamp(packet, (uint32_t) getCurrTime());
-  coap_set_header_auth_counter(packet, retransmission_counter);
+  coap_set_header_client_identity(packet, 0x01);
+  coap_set_header_boot_counter(packet, 0x00'01);
+  coap_set_header_retransmission_counter(packet, retransmission_counter);
 
   // Set a dummy value to reserve space for later update
   static uint8_t sha256[32];
