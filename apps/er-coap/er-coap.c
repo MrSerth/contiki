@@ -705,9 +705,12 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
                                                    option_length);
       coap_pkt->block2_more = (coap_pkt->block2_num & 0x08) >> 3;
       coap_pkt->block2_size = 16 << (coap_pkt->block2_num & 0x07);
-      coap_pkt->block2_offset = (coap_pkt->block2_num & ~0x0000000F)
-        << (coap_pkt->block2_num & 0x07);
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
+        /* The encryption always adds padding, so that we need at least one byte for that. */
+        coap_pkt->block2_size--;
+#endif
       coap_pkt->block2_num >>= 4;
+      coap_pkt->block2_offset = coap_pkt->block2_num * coap_pkt->block2_size;
       PRINTF("Block2 [%lu%s (%u B/blk)]\n",
              (unsigned long)coap_pkt->block2_num,
              coap_pkt->block2_more ? "+" : "", coap_pkt->block2_size);
@@ -1205,9 +1208,16 @@ coap_set_header_block2(void *packet, uint32_t num, uint8_t more,
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
+  /* Decrease by one due to added space for padding */
+  if(size < 15) {
+    return 0;
+  }
+#else
   if(size < 16) {
     return 0;
   }
+#endif
   if(size > 2048) {
     return 0;
   }
@@ -1618,7 +1628,15 @@ coap_encrypt_payload(void *packet) {
   coap_calculate_encrypted_payload(packet, (char *) encrypted_payload, encrypted_payload_len, padding_len);
   coap_set_header_client_identity(packet, COAP_DEFAULT_CLIENT_IDENTITY);
   coap_set_header_encr_alg(packet, 0x01);
-  // TODO: coap_pkt->block2_size needs to be adjusted!
+
+  uint32_t num = 0;
+  uint8_t more = 0;
+  uint16_t size = 0;
+
+  coap_get_header_block2(coap_pkt, &num, &more, &size, NULL);
+  PRINTF("block2 size: %u", size);
+  size++;
+  coap_set_header_block2(coap_pkt, num, more, size);
   coap_set_payload(packet, encrypted_payload, encrypted_payload_len);
 
   // encrypted_payload is not freed by design because otherwise the pointer to the payload would become invalid

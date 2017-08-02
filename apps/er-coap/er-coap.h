@@ -56,13 +56,18 @@
 
 /* REST_MAX_CHUNK_SIZE can be different from 2^x so we need to get next lower 2^x for COAP_MAX_BLOCK_SIZE */
 #ifndef COAP_MAX_BLOCK_SIZE
-#define COAP_MAX_BLOCK_SIZE           (REST_MAX_CHUNK_SIZE < 32 ? 16 : \
+#define COAP_MAX_BLOCK_SIZE_FINAL     (REST_MAX_CHUNK_SIZE < 32 ? 16 : \
                                        (REST_MAX_CHUNK_SIZE < 64 ? 32 : \
                                         (REST_MAX_CHUNK_SIZE < 128 ? 64 : \
                                          (REST_MAX_CHUNK_SIZE < 256 ? 128 : \
                                           (REST_MAX_CHUNK_SIZE < 512 ? 256 : \
                                            (REST_MAX_CHUNK_SIZE < 1024 ? 512 : \
                                             (REST_MAX_CHUNK_SIZE < 2048 ? 1024 : 2048)))))))
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
+#define COAP_MAX_BLOCK_SIZE (COAP_MAX_BLOCK_SIZE_FINAL - 1)
+#else
+#define COAP_MAX_BLOCK_SIZE COAP_MAX_BLOCK_SIZE_FINAL
+#endif
 #endif /* COAP_MAX_BLOCK_SIZE */
 
 /* direct access into the buffer */
