@@ -493,6 +493,16 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
+  static uint8_t *original_data = NULL;
+
+  void *new_ptr = realloc(original_data, data_len * sizeof(uint8_t));
+  if (new_ptr != NULL) {
+    original_data = (uint8_t *) new_ptr;
+  } else { // realloc failed - probably out of memory
+    free(original_data);
+  }
+  memcpy(original_data, data, data_len);
+
   /* initialize packet */
   memset(coap_pkt, 0, sizeof(coap_packet_t));
   PRINTF("-Parsing at: %p-------\n", (void*)&coap_pkt);
@@ -537,7 +547,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
   unsigned int option_delta = 0;
   size_t option_length = 0;
 
-  uint8_t *hmac_position = NULL;
+  uint32_t hmac_position = 0;
 
   while(current_option < data + data_len) {
     /* payload marker 0xFF, currently only checking for 0xF* because rest is reserved */
@@ -752,7 +762,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       coap_merge_multi_option((char **)&(coap_pkt->hmac),
                               &(coap_pkt->hmac_len), current_option,
                               option_length, '\0');
-      hmac_position = current_option;
+      hmac_position = current_option - data;
       PRINTF("HMAC [");
       for (uint8_t i = 0; i < coap_pkt->hmac_len; ++i){
         PRINTF("%02x ", coap_pkt->hmac[i]);
@@ -782,7 +792,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
   bool malware_free = false;
   bool packet_was_encrypted = false;
 
-  hmac_valid = coap_is_valid_hmac(data, hmac_position, data_len);
+  hmac_valid = coap_is_valid_hmac(original_data, hmac_position, data_len);
 
   packet_was_encrypted = (coap_pkt->encr_alg == 0x01);
 
@@ -1689,14 +1699,15 @@ coap_enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmis
 }
 /*---------------------------------------------------------------------------*/
 bool
-coap_is_valid_hmac(uint8_t *original_packet, uint8_t *original_hmac_position, size_t packet_len) {
+coap_is_valid_hmac(uint8_t *original_packet, uint32_t relative_hmac_position, size_t packet_len) {
 #if COAP_ENABLE_HMAC_SUPPORT == 1
-  if (original_hmac_position == NULL) {
+  if (relative_hmac_position == 0 || original_packet == NULL) {
     return false;
   }
 
   uint8_t packet[packet_len];
-  uint8_t *hmac_position = packet + (original_hmac_position - original_packet);
+  uint8_t *hmac_position = packet + relative_hmac_position;
+  uint8_t *original_hmac_position = original_packet + relative_hmac_position;
   uint8_t *byte_after_hmac = hmac_position + COAP_HEADER_HMAC_LENGTH;
 
   memcpy(packet, original_packet, packet_len);
