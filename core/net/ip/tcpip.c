@@ -553,9 +553,9 @@ tcpip_ipv6_output(void)
   }
 
   if (tcpip_filter_packet()) {
-    PRINTF("DROPPING packet due to inspection\n");
-//    uip_clear_buf();
-//    return;
+    ANNOTATE("DROPPING packet due to inspection\n");
+    uip_clear_buf();
+    return;
   }
 
 #if UIP_CONF_IPV6_RPL
@@ -568,9 +568,9 @@ tcpip_ipv6_output(void)
 
   // Inspect the packet a second time due to wrapped / unwrapped RPL.
   if (tcpip_filter_packet()) {
-    PRINTF("DROPPING packet due to inspection\n");
-//    uip_clear_buf();
-//    return;
+    ANNOTATE("DROPPING packet due to inspection\n");
+    uip_clear_buf();
+    return;
   }
 #endif /* UIP_CONF_IPV6_RPL */
 

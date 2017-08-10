@@ -794,7 +794,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
 
   hmac_valid = coap_is_valid_hmac(original_data, hmac_position, data_len);
 
-  packet_was_encrypted = (coap_pkt->encr_alg == 0x01);
+  packet_was_encrypted = !(coap_pkt->encr_alg != 0x01 && coap_pkt->payload_len > 0);
 
   if (packet_was_encrypted) {
     coap_decrypt_payload(coap_pkt);
@@ -809,7 +809,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
     return NO_ERROR;
   } else if (hmac_valid && malware_free && !packet_was_encrypted) {
     PRINTF("UNENCRYPTED-------\n");
-    return NO_ERROR; //UNENCRYPTED;
+    return UNENCRYPTED;
   } else if (hmac_valid && !malware_free && packet_was_encrypted) {
     PRINTF("ENCRYPTED_MALWARE-------\n");
     return ENCRYPTED_MALWARE;
@@ -821,7 +821,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
     return ENCRYPTED_HMAC_INVALID;
   } else if (!hmac_valid && malware_free && !packet_was_encrypted) {
     PRINTF("UNENCRYPTED_HMAC_INVALID-------\n");
-    return NO_ERROR; //UNENCRYPTED_HMAC_INVALID;
+    return UNENCRYPTED_HMAC_INVALID;
   } else if (!hmac_valid && !malware_free && packet_was_encrypted) {
     PRINTF("ENCRYPTED_MALWARE_WITH_HMAC_INVALID-------\n");
     return ENCRYPTED_MALWARE_WITH_HMAC_INVALID;
@@ -1660,6 +1660,10 @@ coap_decrypt_payload(void *packet) {
 #if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
+  if (coap_pkt->payload_len == 0) {
+    return 1;
+  }
+
   static uint8_t *decrypted_payload = NULL;
 
   void *new_ptr = realloc(decrypted_payload, coap_pkt->payload_len * sizeof(uint8_t));
@@ -1742,7 +1746,7 @@ coap_is_malware_free(void *packet) {
 #if COAP_ENABLE_PAYLOAD_INSPECTION == 1
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
-  if (coap_pkt->encr_alg != 0) {
+  if (coap_pkt->encr_alg != 0 && coap_pkt->payload_len > 0) {
     PRINTF("Packet is encrypted, no payload inspection possible!!! FILTER packet\n");
     return false;
   }
