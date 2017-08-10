@@ -1623,6 +1623,10 @@ coap_encrypt_payload(void *packet) {
 #if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
   coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
 
+  if (coap_pkt->payload_len == 0) {
+    return 1;
+  }
+
   uint8_t padding_len = coap_calculate_padding_len(coap_pkt);
   uint16_t encrypted_payload_len = (uint16_t) (coap_pkt->payload_len + padding_len);
   static uint8_t *encrypted_payload = NULL;
