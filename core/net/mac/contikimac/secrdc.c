@@ -317,6 +317,8 @@ static rtimer_clock_t duty_cycle_next;
 static struct pt pt;
 static volatile int is_duty_cycling;
 static volatile int is_strobing;
+static volatile int can_skip;
+static volatile int skipped;
 PROCESS(post_processing, "post processing");
 MEMB(buffered_frames_memb, struct buffered_frame, QUEUEBUF_NUM);
 LIST(buffered_frames_list);
@@ -436,67 +438,72 @@ duty_cycle(void)
 {
   PT_BEGIN(&pt);
 
+  can_skip = 0;
   is_duty_cycling = 1;
+  if(skipped) {
+    skipped = 0;
+  } else {
 #if ILOS_ENABLED
-  my_wake_up_counter = secrdc_get_wake_up_counter(duty_cycle_next);
-  my_wake_up_counter_last_increment = duty_cycle_next;
+    my_wake_up_counter = secrdc_get_wake_up_counter(duty_cycle_next);
+    my_wake_up_counter_last_increment = duty_cycle_next;
 #endif /* ILOS_ENABLED */
 #ifdef LPM_CONF_ENABLE
-  lpm_set_max_pm(1);
+    lpm_set_max_pm(1);
 #endif /* LPM_CONF_ENABLE */
 
-  /* CCAs */
-  while(1) {
-    NETSTACK_RADIO_ASYNC.on();
-    if(channel_clear(TRANSMISSION_DETECTION)) {
-      NETSTACK_RADIO_ASYNC.off();
-      if(++u.duty_cycle.cca_count != MAX_CCAS) {
-        schedule_duty_cycle(RTIMER_NOW() + INTER_CCA_PERIOD - LPM_SWITCHING);
-        PT_YIELD(&pt);
-        /* if we come from PM0, we will be too early */
-        while(!rtimer_has_timed_out(timer.time));
-        continue;
-      }
-    } else {
-      u.duty_cycle.silence_timeout = RTIMER_NOW() + MAX_NOISE;
-    }
-    break;
-  }
-
-  /* fast-sleep optimization */
-  if(u.duty_cycle.silence_timeout) {
+    /* CCAs */
     while(1) {
-
-      /* look for silence period */
-#if WITH_DOZING
-      NETSTACK_RADIO_ASYNC.off();
-      schedule_duty_cycle(RTIMER_NOW() + DOZING_PERIOD - LPM_SWITCHING);
-      PT_YIELD(&pt);
       NETSTACK_RADIO_ASYNC.on();
-#else /* WITH_DOZING */
-      schedule_duty_cycle(RTIMER_NOW() + SILENCE_CHECK_PERIOD);
-      PT_YIELD(&pt);
-#endif /* WITH_DOZING */
-      if(channel_clear(SILENCE_DETECTION)) {
-        enable_shr_search();
-
-        /* wait for SHR */
-        u.duty_cycle.waiting_for_shr = 1;
-        schedule_duty_cycle(RTIMER_NOW()
-            + INTER_FRAME_PERIOD
-            + SHR_DETECTION_TIME
-            + 1 /* some tolerance */);
-        PT_YIELD(&pt);
-        u.duty_cycle.waiting_for_shr = 0;
-        if(!u.duty_cycle.got_shr) {
-          disable_and_reset_radio();
-          PRINTF("secrdc: no SHR detected\n");
+      if(channel_clear(TRANSMISSION_DETECTION)) {
+        NETSTACK_RADIO_ASYNC.off();
+        if(++u.duty_cycle.cca_count != MAX_CCAS) {
+          schedule_duty_cycle(RTIMER_NOW() + INTER_CCA_PERIOD - LPM_SWITCHING);
+          PT_YIELD(&pt);
+          /* if we come from PM0, we will be too early */
+          while(!rtimer_has_timed_out(timer.time));
+          continue;
         }
-        break;
-      } else if(rtimer_has_timed_out(u.duty_cycle.silence_timeout)) {
-        disable_and_reset_radio();
-        PRINTF("secrdc: noise too long\n");
-        break;
+      } else {
+        u.duty_cycle.silence_timeout = RTIMER_NOW() + MAX_NOISE;
+      }
+      break;
+    }
+
+    /* fast-sleep optimization */
+    if(u.duty_cycle.silence_timeout) {
+      while(1) {
+
+        /* look for silence period */
+#if WITH_DOZING
+        NETSTACK_RADIO_ASYNC.off();
+        schedule_duty_cycle(RTIMER_NOW() + DOZING_PERIOD - LPM_SWITCHING);
+        PT_YIELD(&pt);
+        NETSTACK_RADIO_ASYNC.on();
+#else /* WITH_DOZING */
+        schedule_duty_cycle(RTIMER_NOW() + SILENCE_CHECK_PERIOD);
+        PT_YIELD(&pt);
+#endif /* WITH_DOZING */
+        if(channel_clear(SILENCE_DETECTION)) {
+          enable_shr_search();
+
+          /* wait for SHR */
+          u.duty_cycle.waiting_for_shr = 1;
+          schedule_duty_cycle(RTIMER_NOW()
+              + INTER_FRAME_PERIOD
+              + SHR_DETECTION_TIME
+              + 1 /* some tolerance */);
+          PT_YIELD(&pt);
+          u.duty_cycle.waiting_for_shr = 0;
+          if(!u.duty_cycle.got_shr) {
+            disable_and_reset_radio();
+            PRINTF("secrdc: no SHR detected\n");
+          }
+          break;
+        } else if(rtimer_has_timed_out(u.duty_cycle.silence_timeout)) {
+          disable_and_reset_radio();
+          PRINTF("secrdc: noise too long\n");
+          break;
+        }
       }
     }
   }
@@ -1090,6 +1097,7 @@ PROCESS_THREAD(post_processing, ev, data)
     memset(&u.duty_cycle, 0, sizeof(u.duty_cycle));
     duty_cycle_next = shift_to_future(duty_cycle_next);
     schedule_duty_cycle(duty_cycle_next);
+    can_skip = 1;
   }
 
   PROCESS_END();
@@ -1461,9 +1469,20 @@ on_strobed(void)
 }
 /*---------------------------------------------------------------------------*/
 static void
+try_skip_to_send(void)
+{
+  if(can_skip
+      && rtimer_is_schedulable(duty_cycle_next, RTIMER_GUARD_TIME + 1)) {
+    skipped = 1;
+    rtimer_arch_schedule(RTIMER_NOW() + RTIMER_GUARD_TIME + 1);
+  }
+}
+/*---------------------------------------------------------------------------*/
+static void
 send(mac_callback_t sent, void *ptr)
 {
   queue_frame(sent, ptr, NULL, NULL);
+  try_skip_to_send();
 }
 /*---------------------------------------------------------------------------*/
 /* TODO burst support */
@@ -1471,6 +1490,7 @@ static void
 send_list(mac_callback_t sent, void *ptr, struct rdc_buf_list *list)
 {
   queue_frame(sent, ptr, list->buf, list_item_next(list));
+  try_skip_to_send();
 }
 /*---------------------------------------------------------------------------*/
 static void
