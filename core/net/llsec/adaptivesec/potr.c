@@ -160,12 +160,6 @@ has_seqno(enum potr_frame_type type)
   case POTR_FRAME_TYPE_UNICAST_DATA:
   case POTR_FRAME_TYPE_UNICAST_COMMAND:
     return 1;
-  case POTR_FRAME_TYPE_HELLOACK:
-  case POTR_FRAME_TYPE_HELLOACK_P:
-  case POTR_FRAME_TYPE_ACK:
-    return 0;
-  case POTR_FRAME_TYPE_ACKNOWLEDGEMENT:
-    return !SECRDC_WITH_SECURE_PHASE_LOCK;
   default:
     return 0;
   }
