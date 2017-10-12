@@ -20,6 +20,12 @@ If you like to use Practical On-The-fly Rejection (POTR), also add this to your 
 #include "net/llsec/adaptivesec/potr-autoconf.h"
 ```
 
+If you like to use Intra-Layer Optimization for 802.15.4 Security (ILOS), add this line to your `project-conf.h`:
+```c
+#include "net/mac/contikimac/ilos-autoconf.h"
+```
+
+
 Finally, to autoconfigure FRAMERs add:
 ```c
 /* configure FRAMERs */
@@ -44,3 +50,4 @@ When using Rev.G-OpenMotes and Rev.A1-OpenMotes, you can stick with the default 
 
 * [ARES2016](https://hpi.de/fileadmin/user_upload/fachgebiete/meinel/papers/Trust_and_Security_Engineering/2016_Krentz_ARES.pdf)
 * [EWSN2017](https://hpi.de/fileadmin/user_upload/fachgebiete/meinel/papers/Trust_and_Security_Engineering/2017_Krentz_EWSN.pdf)
+* [FPS2017](https://www.researchgate.net/publication/319820120_More_Lightweight_yet_Stronger_802154_Security_through_an_Intra-Layer_Optimization)
