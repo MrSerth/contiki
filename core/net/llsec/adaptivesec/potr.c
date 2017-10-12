@@ -68,7 +68,20 @@
 #define WITH_CONTIKIMAC_FRAMER 0
 #endif /* POTR_CONF_WITH_CONTIKIMAC_FRAMER */
 
+#define PAN_ID_LEN (2)
+
+#if ILOS_ENABLED
+#ifdef POTR_CONF_WITH_PAN_IDS
+#define WITH_PAN_IDS POTR_CONF_WITH_PAN_IDS
+#else /* POTR_CONF_WITH_PAN_IDS */
+#define WITH_PAN_IDS 0
+#endif /* POTR_CONF_WITH_PAN_IDS */
+#else /* ILOS_ENABLED */
+#define WITH_PAN_IDS 0
+#endif /* ILOS_ENABLED */
+
 #define HELLO_LEN (POTR_HEADER_LEN \
+    + (WITH_PAN_IDS ? PAN_ID_LEN - POTR_OTP_LEN : 0) \
     + (WITH_CONTIKIMAC_FRAMER ? CONTIKIMAC_FRAMER_HEADER_LEN : 0) \
     + 1 \
     + AKES_NBR_CHALLENGE_LEN \
@@ -203,6 +216,9 @@ int
 potr_length_of(enum potr_frame_type type)
 {
   return POTR_HEADER_LEN
+#if WITH_PAN_IDS
+      - ((type == POTR_FRAME_TYPE_HELLO) ? POTR_OTP_LEN - PAN_ID_LEN : 0)
+#endif /* WITH_PAN_IDS */
 #if SECRDC_WITH_SECURE_PHASE_LOCK
       + (potr_has_strobe_index(type) ? 1 : 0)
 #endif /* SECRDC_WITH_SECURE_PHASE_LOCK */
@@ -377,6 +393,13 @@ create(void)
     }
     memcpy(p, entry->tentative->meta->otp.u8, POTR_OTP_LEN);
     break;
+#if WITH_PAN_IDS
+  case POTR_FRAME_TYPE_HELLO:
+    p[0] = IEEE802154_PANID & 0xff;
+    p[1] = (IEEE802154_PANID >> 8) & 0xff;
+    p += PAN_ID_LEN - POTR_OTP_LEN;
+    break;
+#endif /* WITH_PAN_IDS */
   default:
 #if ILOS_ENABLED
     create_normal_otp(p, 1, entry);
@@ -546,7 +569,23 @@ potr_parse_and_validate(void)
       PRINTF("potr: Inacceptable HELLO\n");
       return FRAMER_FAILED;
     }
+#if WITH_PAN_IDS
+    /* check PAN-ID instead of OTP */
+    NETSTACK_RADIO_ASYNC.read_payload(PAN_ID_LEN);
+    if((p[0] + (p[1] << 8)) != IEEE802154_PANID) {
+      PRINTF("potr: HELLO for other PAN\n");
+      return FRAMER_FAILED;
+    }
+    /* prevent replay */
+    linkaddr_copy(&sender_of_last_accepted_broadcast,
+        packetbuf_addr(PACKETBUF_ADDR_SENDER));
+    wake_up_counter_at_last_accepted_broadcast =
+        secrdc_get_wake_up_counter(secrdc_get_last_wake_up_time());
+    p += PAN_ID_LEN;
+    break;
+#else /* WITH_PAN_IDS */
     /* intentionally no break; */
+#endif /* WITH_PAN_IDS */
   default:
     if(!entry || !entry->permanent) {
       if(type == POTR_FRAME_TYPE_HELLO) {
