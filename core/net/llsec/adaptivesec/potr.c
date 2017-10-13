@@ -542,11 +542,14 @@ potr_parse_and_validate(void)
       PRINTF("potr: Rejected HELLO\n");
       return FRAMER_FAILED;
     }
+    if(!akes_is_acceptable_hello(entry)) {
+      PRINTF("potr: Inacceptable HELLO\n");
+      return FRAMER_FAILED;
+    }
     /* intentionally no break; */
   default:
     if(!entry || !entry->permanent) {
-      if((type == POTR_FRAME_TYPE_HELLO) && akes_is_acceptable_hello(entry)) {
-        read_otp();
+      if(type == POTR_FRAME_TYPE_HELLO) {
         break;
       }
       PRINTF("potr: Sender is not permanent\n");
@@ -561,7 +564,7 @@ potr_parse_and_validate(void)
     read_otp();
 
     if(memcmp(otp.u8, p, POTR_OTP_LEN)) {
-      if((type == POTR_FRAME_TYPE_HELLO) && akes_is_acceptable_hello(entry)) {
+      if(type == POTR_FRAME_TYPE_HELLO) {
         break;
       }
       PRINTF("potr: Invalid OTP\n");
