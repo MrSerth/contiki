@@ -78,6 +78,7 @@
  */
 #define uip_l2_l3_hdr_len (UIP_LLH_LEN + UIP_IPH_LEN + uip_ext_len)
 #define uip_l2_l3_icmp_hdr_len (UIP_LLH_LEN + UIP_IPH_LEN + uip_ext_len + UIP_ICMPH_LEN)
+#define uip_l2_l3_udp_hdr_len (UIP_LLH_LEN + UIP_IPH_LEN + uip_ext_len + UIP_UDPH_LEN)
 #define uip_l3_hdr_len (UIP_IPH_LEN + uip_ext_len)
 #define uip_l3_icmp_hdr_len (UIP_IPH_LEN + uip_ext_len + UIP_ICMPH_LEN)
 #endif /*NETSTACK_CONF_WITH_IPV6*/

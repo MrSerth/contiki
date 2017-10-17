@@ -65,6 +65,7 @@ PROCESS(border_router_process, "Border router process");
 #if WEBSERVER==0
 /* No webserver */
 AUTOSTART_PROCESSES(&border_router_process);
+
 #elif WEBSERVER>1
 /* Use an external webserver application */
 #include "webserver-nogui.h"

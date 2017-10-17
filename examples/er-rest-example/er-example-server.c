@@ -109,6 +109,7 @@ extern resource_t res_max44009;
 #endif
 
 PROCESS(er_example_server, "Erbium Example Server");
+
 AUTOSTART_PROCESSES(&er_example_server);
 
 PROCESS_THREAD(er_example_server, ev, data)

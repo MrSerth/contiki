@@ -5,6 +5,10 @@ CONTIKI=../../..
 
 MODULES += core/net/llsec/adaptivesec
 
+# REST Engine shall use Erbium CoAP implementation
+APPS += er-coap
+APPS += rest-engine
+
 #linker optimizations
 SMALL=1
 

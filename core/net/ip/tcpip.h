@@ -67,6 +67,7 @@
 #ifndef TCPIP_H_
 #define TCPIP_H_
 
+#include <stdbool.h>
 #include "contiki.h"
 
 struct uip_conn;
@@ -373,6 +374,8 @@ extern unsigned char tcpip_is_forwarding;
 PROCESS_NAME(tcpip_process);
 
 #endif /* TCPIP_H_ */
+
+bool tcpip_filter_packet(void);
 
 /** @} */
 /** @} */

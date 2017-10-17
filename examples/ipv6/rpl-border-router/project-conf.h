@@ -31,6 +31,8 @@
 #ifndef PROJECT_ROUTER_CONF_H_
 #define PROJECT_ROUTER_CONF_H_
 
+#define BORDER_ROUTER_FILTER_COAP 1
+
 #ifndef WITH_NON_STORING
 #define WITH_NON_STORING 0 /* Set this to run with non-storing mode */
 #endif /* WITH_NON_STORING */
@@ -53,7 +55,7 @@
 #endif
 
 #ifndef UIP_CONF_BUFFER_SIZE
-#define UIP_CONF_BUFFER_SIZE    140
+#define UIP_CONF_BUFFER_SIZE    1300
 #endif
 
 #ifndef UIP_CONF_RECEIVE_WINDOW
@@ -123,6 +125,6 @@
 #undef UIP_CONF_TCP
 #define UIP_CONF_TCP 0
 #undef UIP_CONF_UDP
-#define UIP_CONF_UDP 0
+#define UIP_CONF_UDP 1
 
 #endif /* PROJECT_ROUTER_CONF_H_ */

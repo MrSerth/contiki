@@ -77,6 +77,11 @@ struct aes_128_driver {
    * \brief Encrypts.
    */
   void (* encrypt)(uint8_t *plaintext_and_result);
+
+  /**
+ * \brief Decrypts.
+ */
+  void (* decrypt)(uint8_t *plaintext_and_result);
 };
 
 extern const struct aes_128_driver AES_128;

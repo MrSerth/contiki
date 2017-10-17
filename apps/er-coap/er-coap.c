@@ -38,14 +38,20 @@
 
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include "contiki.h"
 #include "sys/cc.h"
 #include "contiki-net.h"
+#include "dev/sha256.h"
+#include "lib/aes-128.h"
+#include <cfs/cfs.h>
 
 #include "er-coap.h"
 #include "er-coap-transactions.h"
 
-#define DEBUG 0
+#include "er-coap-psk.h"
+
+#define DEBUG 1
 #if DEBUG
 #include <stdio.h>
 #define PRINTF(...) printf(__VA_ARGS__)
@@ -285,6 +291,13 @@ coap_init_connection(uint16_t port)
 
   /* initialize transaction ID */
   current_mid = random_rand();
+
+  /* increment boot counter */
+  uint16_t boot_counter = coap_read_persistent_boot_counter(true);
+  PRINTF("\b\b\n");
+  boot_counter++;
+  coap_write_persistent_boot_counter(boot_counter);
+  PRINTF("\b\b\n");
 }
 /*---------------------------------------------------------------------------*/
 uint16_t
@@ -308,7 +321,13 @@ coap_init_message(void *packet, coap_message_type_t type, uint8_t code,
 }
 /*---------------------------------------------------------------------------*/
 size_t
-coap_serialize_message(void *packet, uint8_t *buffer)
+coap_serialize_message(void *packet, uint8_t *buffer) {
+  return coap_serialize_message_with_counter(packet, buffer, 0);
+}
+/*---------------------------------------------------------------------------*/
+size_t
+coap_serialize_message_with_counter(void *packet, uint8_t *buffer,
+                                    uint8_t retransmission_counter)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
   uint8_t *option;
@@ -331,6 +350,9 @@ coap_serialize_message(void *packet, uint8_t *buffer)
   coap_pkt->buffer[1] = coap_pkt->code;
   coap_pkt->buffer[2] = (uint8_t)((coap_pkt->mid) >> 8);
   coap_pkt->buffer[3] = (uint8_t)(coap_pkt->mid);
+
+  /* set security headers */
+  coap_enable_integrity_check_and_encrypt_payload(coap_pkt, retransmission_counter);
 
   /* empty packet, dont need to do more stuff */
   if(!coap_pkt->code) {
@@ -388,6 +410,13 @@ coap_serialize_message(void *packet, uint8_t *buffer)
                                "Proxy-Scheme");
   COAP_SERIALIZE_INT_OPTION(COAP_OPTION_SIZE1, size1, "Size1");
 
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_CLIENT_IDENTITY, client_identity, "Client Identity");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_BOOT_COUNTER, boot_counter, "Boot Counter");
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_RETRANSMISSION_COUNTER, retransmission_counter, "Retransmission Counter");
+  COAP_SERIALIZE_STRING_OPTION(COAP_OPTION_HMAC, hmac, '\0', "HMAC");
+  uint8_t *byte_after_hmac = option;
+  COAP_SERIALIZE_INT_OPTION(COAP_OPTION_ENCR_ALG, encr_alg, "Encryption Algorithm");
+
   PRINTF("-Done serializing at %p----\n", option);
 
   /* Pack payload */
@@ -405,6 +434,9 @@ coap_serialize_message(void *packet, uint8_t *buffer)
     return 0;
   }
 
+  size_t packet_len = (option - buffer) + coap_pkt->payload_len;
+  coap_update_hmac(coap_pkt, byte_after_hmac, packet_len);
+
   PRINTF("-Done %u B (header len %u, payload len %u)-\n",
          (unsigned int)(coap_pkt->payload_len + option - buffer),
          (unsigned int)(option - buffer),
@@ -419,20 +451,37 @@ coap_serialize_message(void *packet, uint8_t *buffer)
          coap_pkt->buffer[5], coap_pkt->buffer[6], coap_pkt->buffer[7]
          );
 
-  return (option - buffer) + coap_pkt->payload_len; /* packet length */
+  return packet_len;
 }
 /*---------------------------------------------------------------------------*/
 void
 coap_send_message(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
-                  uint16_t length)
+                               uint16_t length) {
+  coap_send_message_with_counter(addr, port, data, length, 0);
+}
+/*---------------------------------------------------------------------------*/
+void
+coap_send_message_with_counter(uip_ipaddr_t *addr, uint16_t port, uint8_t *data,
+                  uint16_t length, uint8_t counter)
 {
+  /* Integrity check */
+  if (counter != 0) {
+    static coap_packet_t coap_pkt[1];
+    coap_parse_message(coap_pkt, data, length);
+    length = coap_serialize_message_with_counter(coap_pkt, coap_pkt->buffer, counter);
+  }
+
   /* configure connection to reply to client */
   uip_ipaddr_copy(&udp_conn->ripaddr, addr);
   udp_conn->rport = port;
 
   uip_udp_packet_send(udp_conn, data, length);
 
-  PRINTF("-sent UDP datagram (%u)-\n", length);
+  PRINTF("-sent UDP datagram (%u): ", length);
+  for (uint8_t i = 0; i < length; ++i) {
+    PRINTF("%02x ", data[i]);
+  }
+  PRINTF("-\n");
 
   /* restore server socket to allow data from any node */
   memset(&udp_conn->ripaddr, 0, sizeof(udp_conn->ripaddr));
@@ -444,8 +493,19 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
+  static uint8_t *original_data = NULL;
+
+  void *new_ptr = realloc(original_data, data_len * sizeof(uint8_t));
+  if (new_ptr != NULL) {
+    original_data = (uint8_t *) new_ptr;
+  } else { // realloc failed - probably out of memory
+    free(original_data);
+  }
+  memcpy(original_data, data, data_len);
+
   /* initialize packet */
   memset(coap_pkt, 0, sizeof(coap_packet_t));
+  PRINTF("-Parsing at: %p-------\n", (void*)&coap_pkt);
 
   /* pointer to packet bytes */
   coap_pkt->buffer = data;
@@ -486,6 +546,8 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
   unsigned int option_number = 0;
   unsigned int option_delta = 0;
   size_t option_length = 0;
+
+  uint32_t hmac_position = 0;
 
   while(current_option < data + data_len) {
     /* payload marker 0xFF, currently only checking for 0xF* because rest is reserved */
@@ -547,7 +609,8 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
     PRINTF("OPTION %u (delta %u, len %zu): ", option_number, option_delta,
            option_length);
 
-    SET_OPTION(coap_pkt, option_number);
+    if (option_number < COAP_OPTION_EXPERIMENTAL)
+      SET_OPTION(coap_pkt, option_number);
 
     switch(option_number) {
     case COAP_OPTION_CONTENT_FORMAT:
@@ -665,9 +728,12 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
                                                    option_length);
       coap_pkt->block2_more = (coap_pkt->block2_num & 0x08) >> 3;
       coap_pkt->block2_size = 16 << (coap_pkt->block2_num & 0x07);
-      coap_pkt->block2_offset = (coap_pkt->block2_num & ~0x0000000F)
-        << (coap_pkt->block2_num & 0x07);
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
+        /* The encryption always adds padding, so that we need at least one byte for that. */
+        coap_pkt->block2_size--;
+#endif
       coap_pkt->block2_num >>= 4;
+      coap_pkt->block2_offset = coap_pkt->block2_num * coap_pkt->block2_size;
       PRINTF("Block2 [%lu%s (%u B/blk)]\n",
              (unsigned long)coap_pkt->block2_num,
              coap_pkt->block2_more ? "+" : "", coap_pkt->block2_size);
@@ -692,6 +758,34 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
       coap_pkt->size1 = coap_parse_int_option(current_option, option_length);
       PRINTF("Size1 [%lu]\n", (unsigned long)coap_pkt->size1);
       break;
+    case COAP_OPTION_CLIENT_IDENTITY:
+      coap_pkt->client_identity = (uint8_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Client Identity [%u]\n", (uint8_t)coap_pkt->client_identity);
+      break;
+    case COAP_OPTION_BOOT_COUNTER:
+      coap_pkt->boot_counter = (uint16_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Boot Counter [%u]\n", (uint16_t)coap_pkt->boot_counter);
+      break;
+    case COAP_OPTION_RETRANSMISSION_COUNTER:
+      coap_pkt->retransmission_counter = (uint8_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Retransmission Counter [%u]\n", (uint8_t)coap_pkt->retransmission_counter);
+      break;
+    case COAP_OPTION_HMAC:
+      /* coap_merge_multi_option() operates in-place on the IPBUF, but final packet field should be const string -> cast to string */
+      coap_merge_multi_option((char **)&(coap_pkt->hmac),
+                              &(coap_pkt->hmac_len), current_option,
+                              option_length, '\0');
+      hmac_position = current_option - data;
+      PRINTF("HMAC [");
+      for (uint8_t i = 0; i < coap_pkt->hmac_len; ++i){
+        PRINTF("%02x ", coap_pkt->hmac[i]);
+      }
+      PRINTF("\b]\n");
+      break;
+    case COAP_OPTION_ENCR_ALG:
+      coap_pkt->encr_alg = (uint8_t) coap_parse_int_option(current_option, option_length);
+      PRINTF("Encryption Algorithm [%u]\n", (uint8_t)coap_pkt->encr_alg);
+      break;
     default:
       PRINTF("unknown (%u)\n", option_number);
       /* check if critical (odd) */
@@ -705,7 +799,52 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
   }                             /* for */
   PRINTF("-Done parsing-------\n");
 
-  return NO_ERROR;
+
+
+  bool hmac_valid = false;
+  bool malware_free = false;
+  bool packet_was_encrypted = false;
+
+  hmac_valid = coap_is_valid_hmac(original_data, hmac_position, data_len);
+
+  packet_was_encrypted = !(coap_pkt->encr_alg != 0x01 && coap_pkt->payload_len > 0);
+
+  if (packet_was_encrypted) {
+    coap_decrypt_payload(coap_pkt);
+  }
+
+  malware_free = coap_is_malware_free(coap_pkt);
+
+  PRINTF("-Done verification: ");
+
+  if (hmac_valid && malware_free && packet_was_encrypted) {
+    PRINTF("NO_ERROR-------\n");
+    return NO_ERROR;
+  } else if (hmac_valid && malware_free && !packet_was_encrypted) {
+    PRINTF("UNENCRYPTED-------\n");
+    return UNENCRYPTED;
+  } else if (hmac_valid && !malware_free && packet_was_encrypted) {
+    PRINTF("ENCRYPTED_MALWARE-------\n");
+    return ENCRYPTED_MALWARE;
+  } else if (hmac_valid && !malware_free && !packet_was_encrypted) {
+    PRINTF("UNENCRYPTED_MALWARE-------\n");
+    return UNENCRYPTED_MALWARE;
+  } else if (!hmac_valid && malware_free && packet_was_encrypted) {
+    PRINTF("ENCRYPTED_HMAC_INVALID-------\n");
+    return ENCRYPTED_HMAC_INVALID;
+  } else if (!hmac_valid && malware_free && !packet_was_encrypted) {
+    PRINTF("UNENCRYPTED_HMAC_INVALID-------\n");
+    return UNENCRYPTED_HMAC_INVALID;
+  } else if (!hmac_valid && !malware_free && packet_was_encrypted) {
+    PRINTF("ENCRYPTED_MALWARE_WITH_HMAC_INVALID-------\n");
+    return ENCRYPTED_MALWARE_WITH_HMAC_INVALID;
+  } else if (!hmac_valid && !malware_free && !packet_was_encrypted) {
+    PRINTF("UNENCRYPTED_MALWARE_WITH_HMAC_INVALID-------\n");
+    return UNENCRYPTED_MALWARE_WITH_HMAC_INVALID;
+  }
+
+  // Should never reach execution here because one of the above statements should always be true.
+  return INTERNAL_SERVER_ERROR_5_00;
 }
 /*---------------------------------------------------------------------------*/
 /*- REST Engine API ---------------------------------------------------------*/
@@ -819,6 +958,7 @@ coap_set_header_max_age(void *packet, uint32_t age)
   SET_OPTION(coap_pkt, COAP_OPTION_MAX_AGE);
   return 1;
 }
+
 /*---------------------------------------------------------------------------*/
 int
 coap_get_header_etag(void *packet, const uint8_t **etag)
@@ -1091,9 +1231,16 @@ coap_set_header_block2(void *packet, uint32_t num, uint8_t more,
 {
   coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
 
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
+  /* Decrease by one due to added space for padding */
+  if(size < 15) {
+    return 0;
+  }
+#else
   if(size < 16) {
     return 0;
   }
+#endif
   if(size > 2048) {
     return 0;
   }
@@ -1219,5 +1366,468 @@ coap_set_payload(void *packet, const void *payload, size_t length)
   coap_pkt->payload_len = MIN(REST_MAX_CHUNK_SIZE, length);
 
   return coap_pkt->payload_len;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_client_identity(void *packet, uint8_t value)
+{
+  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+  coap_pkt->client_identity = value;
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_CLIENT_IDENTIY);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_boot_counter(void *packet, uint16_t value)
+{
+  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+  coap_pkt->boot_counter = value;
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_BOOT_COUNTER);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_retransmission_counter(void *packet, uint8_t value)
+{
+  coap_packet_t *const coap_pkt = (coap_packet_t *)packet;
+
+  coap_pkt->retransmission_counter = (uint8_t) (value + 1);
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_RETRANSMISSION_COUNTER);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_calculate_hmac(uint8_t *hmac, uint8_t *data, size_t data_len)
+{
+  uint8_t *psk = presharedkeys[COAP_DEFAULT_CLIENT_IDENTITY];
+  uint8_t psk_len = presharedkeys_len[COAP_DEFAULT_CLIENT_IDENTITY];
+
+  PRINTF("Input data for HMAC: ");
+  for (uint8_t i = 0; i < data_len; ++i){
+    PRINTF("%02x ", data[i]);
+  }
+  PRINTF("\b\n");
+
+  // Enable crypto processor
+  if (!CRYPTO_IS_ENABLED())
+    crypto_init();
+  static uint8_t error_code = CRYPTO_SUCCESS;
+  static sha256_state_t context;
+
+  /*
+   * HMAC implementation according to RFC 2104
+   */
+  uint8_t k_ipad[65];    // inner padding - key XORd with ipad
+  uint8_t k_opad[65];    // outer padding - key XORd with opad
+  uint8_t tk[32];
+
+  // if psk is longer than 64 bytes reset it to psk=SHA256(psk)
+  if (psk_len > 64) {
+    static sha256_state_t tctx;
+
+    error_code |= sha256_init(&tctx);
+    error_code |= sha256_process(&tctx, psk, psk_len);
+    error_code |= sha256_done(&tctx, tk);
+
+    memmove(psk, tk, sizeof(tk));
+    psk_len = 32;
+  }
+
+  /*
+   * the HMAC_SHA256 transform looks like:
+   *
+   * SHA256(K XOR opad, SHA256(K XOR ipad, text))
+   *
+   * where K is an n byte psk
+   * ipad is the byte 0x36 repeated 64 times
+   * opad is the byte 0x5c repeated 64 times
+   * and text is the data being protected
+   */
+
+  // start out by storing key in pads
+  bzero(k_ipad, sizeof k_ipad);
+  bzero(k_opad, sizeof k_opad);
+  bcopy(psk, k_ipad, psk_len);
+  bcopy(psk, k_opad, psk_len);
+
+  // XOR psk with ipad and opad values
+  for (uint8_t i = 0; i < 64; ++i) {
+    k_ipad[i] ^= 0x36;
+    k_opad[i] ^= 0x5c;
+  }
+
+  // perform inner SHA256
+  error_code |= sha256_init(&context);                          // init context for 1st pass
+  error_code |= sha256_process(&context, k_ipad, 64);           // start with inner pad
+  error_code |= sha256_process(&context, data, (uint32_t) data_len);       // then text of datagram
+  error_code |= sha256_done(&context, hmac);                    // finish up 1st pass
+
+  // perform outer SHA256
+  error_code |= sha256_init(&context);                          // init context for 2nd pass
+  error_code |= sha256_process(&context, k_opad, 64);           // start with outer pad
+  error_code |= sha256_process(&context, hmac, 32);             // then results of 1st hash
+  error_code |= sha256_done(&context, hmac);                    // finish up 2nd pass
+
+  if (error_code != CRYPTO_SUCCESS) {
+    PRINTF("HMAC calculation failed!");
+    return 0;
+  }
+
+  PRINTF("Calculated HMAC: ");
+  for (uint8_t i = 0; i < 32; ++i){
+    PRINTF("%02x ", hmac[i]);
+  }
+  PRINTF("\b\n");
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_hmac(void *packet, const char *hmac, size_t hmac_length) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+  coap_pkt->hmac = hmac;
+  coap_pkt->hmac_len = hmac_length;
+
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_HMAC);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+uint8_t
+coap_calculate_padding_len(void *packet) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+  return (uint8_t) (16 - (coap_pkt->payload_len % 16));
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_calculate_encrypted_payload(void *packet, char *encrypted_payload,
+                                 uint16_t encrypted_payload_len, uint8_t padding_len) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  uint8_t *psk = presharedkeys[COAP_DEFAULT_CLIENT_IDENTITY];
+  uint8_t cipher_block[encrypted_payload_len];
+
+  memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
+  memset(cipher_block + coap_pkt->payload_len, padding_len, padding_len);
+
+  PRINTF("plain input data for AES: ");
+  for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
+    PRINTF("%02x ", cipher_block[i]);
+  }
+  PRINTF("\b, ");
+
+  AES_128_GET_LOCK();
+  AES_128.set_key(psk);
+  for (uint16_t i = 0; i < encrypted_payload_len; i += 16) {
+    AES_128.encrypt(&cipher_block[i]);
+  }
+  AES_128_RELEASE_LOCK();
+
+  memcpy(encrypted_payload, cipher_block, encrypted_payload_len);
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+/**
+ * @return the decrypted payload length (always smaller than the encrpted payload length due to padding).
+ *         In case of an error, -1 is returned.
+ */
+int32_t
+coap_calculate_decrypted_payload(void *packet, char *decrypted_payload) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  if ((coap_pkt->payload_len % 16) != 0) {
+    return -1;
+  }
+
+  uint8_t *psk = presharedkeys[COAP_DEFAULT_CLIENT_IDENTITY];
+  uint8_t cipher_block[coap_pkt->payload_len];
+  memcpy(cipher_block, coap_pkt->payload, coap_pkt->payload_len);
+
+  PRINTF("encrypted input data for AES: ");
+  for (uint8_t i = 0; i < sizeof(cipher_block); ++i){
+    PRINTF("%02x ", cipher_block[i]);
+  }
+  PRINTF("\b\n");
+
+  AES_128_GET_LOCK();
+  AES_128.set_key(psk);
+  for (uint16_t i = 0; i < coap_pkt->payload_len; i += 16) {
+    AES_128.decrypt(&cipher_block[i]);
+  }
+  AES_128_RELEASE_LOCK();
+
+  uint8_t padding_len = cipher_block[sizeof(cipher_block) - 1];
+
+  // Check for correct padding
+  bool decryption_padding_error = false;
+  for (uint8_t i = padding_len; i > 0; --i) {
+    if (cipher_block[sizeof(cipher_block) - i] != padding_len) {
+      decryption_padding_error |= true;
+    }
+  }
+
+  if (decryption_padding_error) {
+    return -1;
+  }
+
+  uint16_t decrypted_payload_len = sizeof(cipher_block) - padding_len;
+  memcpy(decrypted_payload, cipher_block, decrypted_payload_len);
+
+  return decrypted_payload_len;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_set_header_encr_alg(void *packet, uint8_t value) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+  coap_pkt->encr_alg = value;
+
+  // Don't set option in map because this would exceed the FSRAM size
+  // SET_OPTION(coap_pkt, COAP_OPTION_HMAC);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_update_hmac(void *packet, uint8_t* byte_after_hmac, size_t packet_len) {
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  if (coap_pkt->hmac_len == 0) {
+    // No HMAC found to update
+    return 1;
+  }
+
+  uint8_t* hmac_position = byte_after_hmac - COAP_HEADER_HMAC_LENGTH;
+
+  size_t hex_all_len = packet_len - COAP_HEADER_HMAC_LENGTH;
+  uint8_t hex_all[hex_all_len];
+  size_t packet_len_before_hmac_value = hmac_position - coap_pkt->buffer;
+  size_t packet_len_after_hmac_value = packet_len - (packet_len_before_hmac_value + COAP_HEADER_HMAC_LENGTH);
+  memcpy(hex_all, coap_pkt->buffer, packet_len_before_hmac_value);
+  memcpy(hex_all + packet_len_before_hmac_value, byte_after_hmac, packet_len_after_hmac_value);
+
+  uint8_t full_hmac[32];
+  coap_calculate_hmac(full_hmac, hex_all, hex_all_len);
+  memcpy(hmac_position, full_hmac, COAP_HEADER_HMAC_LENGTH);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_enable_integrity_check(void *packet, uint8_t retransmission_counter) {
+#if COAP_ENABLE_HMAC_SUPPORT == 1
+  coap_set_header_client_identity(packet, COAP_DEFAULT_CLIENT_IDENTITY);
+  coap_set_header_boot_counter(packet, coap_read_persistent_boot_counter(false));
+  coap_set_header_retransmission_counter(packet, retransmission_counter);
+
+  // Set a dummy value to reserve space for later update
+  static uint8_t hmac[COAP_HEADER_HMAC_LENGTH];
+  coap_set_header_hmac(packet, (const char *) hmac, sizeof(hmac));
+#endif
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_encrypt_payload(void *packet) {
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  if (coap_pkt->payload_len == 0) {
+    return 1;
+  }
+
+  uint8_t padding_len = coap_calculate_padding_len(coap_pkt);
+  uint16_t encrypted_payload_len = (uint16_t) (coap_pkt->payload_len + padding_len);
+  static uint8_t *encrypted_payload = NULL;
+
+  void *new_ptr = realloc(encrypted_payload, encrypted_payload_len * sizeof(uint8_t));
+  if (new_ptr != NULL) {
+    encrypted_payload = (uint8_t *) new_ptr;
+  } else { // realloc failed - probably out of memory
+    free(encrypted_payload);
+    return 0;
+  }
+
+  coap_calculate_encrypted_payload(packet, (char *) encrypted_payload, encrypted_payload_len, padding_len);
+  coap_set_header_client_identity(packet, COAP_DEFAULT_CLIENT_IDENTITY);
+  coap_set_header_encr_alg(packet, 0x01);
+
+  uint32_t num = 0;
+  uint8_t more = 0;
+  uint16_t size = 0;
+
+  coap_get_header_block2(coap_pkt, &num, &more, &size, NULL);
+  PRINTF("block2 size: %u", size);
+  size++;
+  coap_set_header_block2(coap_pkt, num, more, size);
+  coap_set_payload(packet, encrypted_payload, encrypted_payload_len);
+
+  // encrypted_payload is not freed by design because otherwise the pointer to the payload would become invalid
+#endif
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_decrypt_payload(void *packet) {
+#if COAP_ENABLE_ENCRYPTION_SUPPORT == 1
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  if (coap_pkt->payload_len == 0) {
+    return 1;
+  }
+
+  static uint8_t *decrypted_payload = NULL;
+
+  void *new_ptr = realloc(decrypted_payload, coap_pkt->payload_len * sizeof(uint8_t));
+  if (new_ptr != NULL) {
+    decrypted_payload = (uint8_t *) new_ptr;
+  } else { // realloc failed - probably out of memory
+    free(decrypted_payload);
+    return 0;
+  }
+
+  int32_t decrypted_payload_len = coap_calculate_decrypted_payload(packet, (char *) decrypted_payload);
+  if (decrypted_payload_len == -1) {
+    PRINTF("DECRYPTION FAILED! Check the payload length (multiple of 16), the payload itself and the PSK\n");
+    return 0;
+  }
+
+  new_ptr = realloc(decrypted_payload, decrypted_payload_len * sizeof(uint8_t));
+  if (new_ptr != NULL) {
+    decrypted_payload = (uint8_t *) new_ptr;
+  } else { // realloc failed - probably out of memory
+    free(decrypted_payload);
+    return 0;
+  }
+
+  coap_set_header_encr_alg(packet, 0x00);
+  coap_set_payload(packet, decrypted_payload, (uint16_t) decrypted_payload_len);
+#endif
+
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_enable_integrity_check_and_encrypt_payload(void *packet, uint8_t retransmission_counter) {
+  coap_enable_integrity_check(packet, retransmission_counter);
+  coap_encrypt_payload(packet);
+  return 1;
+}
+/*---------------------------------------------------------------------------*/
+bool
+coap_is_valid_hmac(uint8_t *original_packet, uint32_t relative_hmac_position, size_t packet_len) {
+#if COAP_ENABLE_HMAC_SUPPORT == 1
+  if (relative_hmac_position == 0 || original_packet == NULL) {
+    return false;
+  }
+
+  uint8_t packet[packet_len];
+  uint8_t *hmac_position = packet + relative_hmac_position;
+  uint8_t *original_hmac_position = original_packet + relative_hmac_position;
+  uint8_t *byte_after_hmac = hmac_position + COAP_HEADER_HMAC_LENGTH;
+
+  memcpy(packet, original_packet, packet_len);
+
+  size_t hex_all_len = packet_len - COAP_HEADER_HMAC_LENGTH;
+  uint8_t hex_all[hex_all_len];
+  size_t packet_len_before_hmac_value = hmac_position - packet;
+  size_t packet_len_after_hmac_value = packet_len - (packet_len_before_hmac_value + COAP_HEADER_HMAC_LENGTH);
+
+  memcpy(hex_all, packet, packet_len_before_hmac_value);
+  memcpy(hex_all + packet_len_before_hmac_value, byte_after_hmac, packet_len_after_hmac_value);
+
+  coap_calculate_hmac(hmac_position, hex_all, hex_all_len);
+  uint8_t hmac_comparison = (uint8_t) memcmp(hmac_position, original_hmac_position, COAP_HEADER_HMAC_LENGTH);
+
+  PRINTF("HMAC comparison (0 indicates the HMACs are equal): %i\n", hmac_comparison);
+
+  if (hmac_comparison == 0) {
+    PRINTF("HMAC is valid!\n");
+    return true;
+  } else {
+    PRINTF("Hash is invalid!!! FILTER packet\n");
+    return false;
+  }
+#else
+  return true;
+#endif
+}
+/*---------------------------------------------------------------------------*/
+bool
+coap_is_malware_free(void *packet) {
+#if COAP_ENABLE_PAYLOAD_INSPECTION == 1
+  coap_packet_t *const coap_pkt = (coap_packet_t *) packet;
+
+  if (coap_pkt->encr_alg != 0 && coap_pkt->payload_len > 0) {
+    PRINTF("Packet is encrypted, no payload inspection possible!!! FILTER packet\n");
+    return false;
+  }
+
+  PRINTF("Payload was unencrypted or encryption successful. SCANNING...\n");
+  if (strstr((const char *)coap_pkt->payload, "EICAR") != NULL) {
+    PRINTF("Malware found!!! FILTER packet\n");
+    return false;
+  } else {
+    PRINTF("Result: No malware found.\n");
+    return true;
+  }
+#else
+  return true;
+#endif
+}
+/*---------------------------------------------------------------------------*/
+uint16_t
+coap_read_persistent_boot_counter(bool disable_caching) {
+  static uint16_t boot_counter = 0x0000;
+  static uint16_t cache_read_counter = 0;
+
+  if (disable_caching || cache_read_counter == 0) {
+    int filedescriptor;
+    uint8_t buf[sizeof(uint16_t)];
+
+    filedescriptor = cfs_open(COAP_BOOT_COUNTER_FILENAME, CFS_READ);
+    if (filedescriptor >= 0) {
+      cfs_seek(filedescriptor, 0, CFS_SEEK_SET);
+      cfs_read(filedescriptor, buf, sizeof(buf));
+      cfs_close(filedescriptor);
+      memcpy(&boot_counter, buf, sizeof(uint16_t));
+    }
+
+    PRINTF("Boot counter read from file system: 0x%04x, ", boot_counter);
+    cache_read_counter = 0;
+  } else if (cache_read_counter == COAP_MAX_BOOT_COUNTER_CACHE_READS) {
+    boot_counter++;
+    coap_write_persistent_boot_counter(boot_counter);
+    PRINTF("\b\b (auto-increment), ");
+    cache_read_counter = 0;
+  }
+
+  if (!disable_caching) {
+    cache_read_counter++;
+  }
+  return boot_counter;
+}
+/*---------------------------------------------------------------------------*/
+int
+coap_write_persistent_boot_counter(uint16_t value) {
+  PRINTF("Boot counter to write to file system: 0x%04x, ", value);
+
+  int filedescriptor;
+  uint8_t buf[sizeof(uint16_t)];
+  memcpy(buf, &value, sizeof(uint16_t));
+
+  cfs_remove(COAP_BOOT_COUNTER_FILENAME);
+  filedescriptor = cfs_open(COAP_BOOT_COUNTER_FILENAME, CFS_WRITE);
+  if(filedescriptor >= 0) {
+    cfs_seek(filedescriptor, 0, CFS_SEEK_SET);
+    cfs_write(filedescriptor, buf, sizeof(buf));
+    cfs_close(filedescriptor);
+  }
+  return 1;
 }
 /*---------------------------------------------------------------------------*/

@@ -60,6 +60,15 @@
 #define COAP_HEADER_OPTION_DELTA_MASK        0xF0
 #define COAP_HEADER_OPTION_SHORT_LENGTH_MASK 0x0F
 
+#define COAP_ENABLE_HMAC_SUPPORT             1
+#define COAP_ENABLE_ENCRYPTION_SUPPORT       1
+#define COAP_ENABLE_PAYLOAD_INSPECTION       1
+
+#define COAP_HEADER_HMAC_LENGTH              8  /* The maximum number of bytes for the HMAC, value range from 0 to 32 */
+#define COAP_DEFAULT_CLIENT_IDENTITY         1  /* The client identity to use, a suitable PSK must exist */
+#define COAP_BOOT_COUNTER_FILENAME           "bootcounter.hex"
+#define COAP_MAX_BOOT_COUNTER_CACHE_READS    0xFFFF
+
 /* CoAP message types */
 typedef enum {
   COAP_TYPE_CON,                /* confirmables */
@@ -111,7 +120,16 @@ typedef enum {
 
   /* Erbium hooks */
   MANUAL_RESPONSE,
-  PING_RESPONSE
+  PING_RESPONSE,
+
+  /* Potential Security issues */
+  UNENCRYPTED,
+  ENCRYPTED_MALWARE,
+  UNENCRYPTED_MALWARE,
+  ENCRYPTED_HMAC_INVALID,
+  UNENCRYPTED_HMAC_INVALID,
+  ENCRYPTED_MALWARE_WITH_HMAC_INVALID,
+  UNENCRYPTED_MALWARE_WITH_HMAC_INVALID
 } coap_status_t;
 
 /* CoAP header option numbers */
@@ -135,6 +153,12 @@ typedef enum {
   COAP_OPTION_PROXY_URI = 35,   /* 1-1034 B */
   COAP_OPTION_PROXY_SCHEME = 39,        /* 1-255 B */
   COAP_OPTION_SIZE1 = 60,       /* 0-4 B */
+  COAP_OPTION_EXPERIMENTAL = 65000, /* 0 B, never used directly */
+  COAP_OPTION_CLIENT_IDENTITY = 65000, /* 1 B */
+  COAP_OPTION_BOOT_COUNTER = 65001, /* 2 B */
+  COAP_OPTION_RETRANSMISSION_COUNTER = 65002, /* 1 B */
+  COAP_OPTION_HMAC = 65003, /* 32 B */
+  COAP_OPTION_ENCR_ALG = 65004, /* 1 B */
 } coap_option_t;
 
 /* CoAP Content-Formats */

@@ -113,9 +113,34 @@ encrypt(uint8_t *plaintext_and_result)
   restore_crypto(crypto_enabled);
 }
 /*---------------------------------------------------------------------------*/
+static void
+decrypt(uint8_t *plaintext_and_result)
+{
+  uint8_t crypto_enabled, ret;
+  int8_t res;
+
+  crypto_enabled = enable_crypto();
+
+  ret = ecb_crypt_start(false, CC2538_AES_128_KEY_AREA, plaintext_and_result,
+                        plaintext_and_result, AES_128_BLOCK_SIZE, NULL);
+  if(ret != CRYPTO_SUCCESS) {
+    PRINTF("%s: ecb_crypt_start() error %u\n", MODULE_NAME, ret);
+    sys_ctrl_reset();
+  }
+
+  while((res = ecb_crypt_check_status()) == CRYPTO_PENDING);
+  if(res != CRYPTO_SUCCESS) {
+    PRINTF("%s: ecb_crypt_check_status() error %d\n", MODULE_NAME, res);
+    sys_ctrl_reset();
+  }
+
+  restore_crypto(crypto_enabled);
+}
+/*---------------------------------------------------------------------------*/
 const struct aes_128_driver cc2538_aes_128_driver = {
   set_key,
-  encrypt
+  encrypt,
+  decrypt
 };
 
 /** @} */
