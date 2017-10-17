@@ -600,7 +600,7 @@ coap_parse_message(void *packet, uint8_t *data, uint16_t data_len)
 
     option_number += option_delta;
 
-    if(option_number > COAP_OPTION_SIZE1) {
+    if(option_number < COAP_OPTION_EXPERIMENTAL && option_number > COAP_OPTION_SIZE1) {
       /* Malformed CoAP - out of bounds */
       PRINTF("BAD REQUEST: option number too large: %u\n", option_number);
       return BAD_REQUEST_4_00;
